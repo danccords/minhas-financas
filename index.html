@@ -319,6 +319,7 @@ async function carregarFirebase(){
   fb.auth.languageCode="pt";
 }
 function telaLogin(msg){
+  $("#label").textContent=mkLabel(cur);
   $("#main").innerHTML=`<section class="card" style="padding:18px 16px">
     <h2 style="margin:0 0 6px;font-size:17px">Entrar</h2>
     <p style="margin:0 0 14px;color:var(--muted);font-size:13.5px">Entre para ver seus lançamentos. Eles ficam sincronizados entre o celular e o computador.</p>
@@ -336,7 +337,7 @@ function telaLogin(msg){
   const traduz=e=>({"auth/invalid-credential":"E-mail ou senha incorretos.","auth/wrong-password":"E-mail ou senha incorretos.","auth/user-not-found":"Não existe conta com esse e-mail.","auth/email-already-in-use":"Já existe uma conta com esse e-mail. Use Entrar.","auth/weak-password":"A senha precisa ter pelo menos 6 caracteres.","auth/invalid-email":"E-mail inválido.","auth/popup-closed-by-user":"Login cancelado.","auth/network-request-failed":"Sem conexão com a internet."}[e.code]||("Não consegui entrar ("+(e.code||e.message)+")."));
   $("#lgG").onclick=async()=>{err("");const p=new A.GoogleAuthProvider();p.setCustomParameters({prompt:"select_account"});
     try{await A.signInWithPopup(fb.auth,p)}catch(e){
-      if(["auth/popup-blocked","auth/operation-not-supported-in-this-environment","auth/cancelled-popup-request"].includes(e.code)){try{await A.signInWithRedirect(fb.auth,p)}catch(e2){err(traduz(e2))}}
+      if(e.code==="auth/popup-blocked")err("O navegador bloqueou a janela do Google. Libere pop-ups para este site ou entre com e-mail e senha.");
       else err(traduz(e))}};
   const em=()=>$("#lgE").value.trim(),pw=()=>$("#lgP").value;
   $("#lgIn").onclick=async()=>{err("");if(!em()||!pw())return err("Preencha e-mail e senha.");try{await A.signInWithEmailAndPassword(fb.auth,em(),pw())}catch(e){err(traduz(e))}};
@@ -357,7 +358,6 @@ function iniciarDados(){
   if(!db){
     modoLocal=true;
     try{await carregarFirebase()}catch(e){$("#main").innerHTML='<div class="status">Não consegui carregar o app. Verifique a internet e abra de novo.</div>';return}
-    try{await fb.A.getRedirectResult(fb.auth)}catch(e){}
     fb.A.onAuthStateChanged(fb.auth,u=>{
       if(!u){usuario=null;db=null;telaLogin();return}
       if(usuario&&usuario.uid===u.uid)return;
