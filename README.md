@@ -15,3 +15,7 @@ Os lançamentos ficam salvos **só no navegador do aparelho** (localStorage). Na
 Use **Ano → Backup → Baixar backup** de vez em quando, e **Restaurar backup** para levar os dados para outro aparelho.
 
 No iPhone, abra no Safari e use **Compartilhar → Adicionar à Tela de Início**. Assim ele abre como app e o iOS não apaga os dados por falta de uso.
+
+## Dados iniciais
+
+`dados-iniciais.json` guarda os lançamentos iniciais **criptografados** (AES-256-GCM, chave derivada da senha com PBKDF2-SHA256, 600 mil iterações). Sem a senha o arquivo é ilegível. Quando o app abre vazio, ele pede a senha e carrega esses dados no aparelho; "Começar vazio" ignora.
