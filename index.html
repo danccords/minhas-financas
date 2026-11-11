@@ -214,12 +214,12 @@ function localDb(){
       doc:id=>docRef(col+"/"+(id||newId())),
       add:async d=>{const r=docRef(col+"/"+newId());await r.set(d);return r}};
   };
-  return {doc:docRef,collection:c=>query(c),_dump:()=>store,_load:o=>{store=o;changed()}};
+  return {doc:docRef,collection:c=>query(c),_dump:async()=>store,_load:async o=>{store=o;changed()},_hasItens:async()=>Object.keys(store).some(k=>k.startsWith("itens/"))};
 }
 
 /* ================= backup ================= */
-function baixarBackup(){
-  const data={app:"minhas-financas",versao:1,geradoEm:new Date().toISOString(),docs:db._dump()};
+async function baixarBackup(){
+  const data={app:"minhas-financas",versao:1,geradoEm:new Date().toISOString(),docs:await db._dump()};
   const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`financas-backup-${todayISO()}.json`;
   document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
@@ -237,7 +237,7 @@ function restaurarBackup(file){
         <p style="color:var(--muted);font-size:14px">O arquivo tem <b>${n}</b> lançamentos. Os dados atuais deste aparelho serão <b>substituídos</b> por ele.</p>
         <div class="acts"><span class="sp"></span><button class="btn" id="rC">Cancelar</button><button class="btn primary" id="rS">Restaurar</button></div></div></div>`;
       $("#rC").onclick=()=>$("#modal").innerHTML="";
-      $("#rS").onclick=()=>{db._load(o.docs);$("#modal").innerHTML="";toast(`${n} lançamentos restaurados`);if(view==="ano")loadYear()};
+      $("#rS").onclick=async()=>{$("#rS").disabled=true;$("#rS").textContent="Restaurando…";try{await db._load(o.docs);$("#modal").innerHTML="";toast(`${n} lançamentos restaurados`);if(view==="ano")loadYear()}catch(e){$("#rS").disabled=false;$("#rS").textContent="Restaurar";showErr("Não consegui restaurar ("+(e.code||e.message||e)+").")}};
     }catch{toast("Esse arquivo não é um backup do Minhas Finanças.")}
   };
   r.readAsText(file);
@@ -253,11 +253,11 @@ async function decifrar(pkg,senha){
 }
 async function ofertarDadosIniciais(){
   if(!modoLocal)return;
-  const temDados=Object.keys(db._dump()).some(k=>k.startsWith("itens/"));
+  let temDados=true;try{temDados=await db._hasItens()}catch{}
   if(temDados||lsGet("minhas-financas-sem-carga","")==="1"||!(window.crypto&&crypto.subtle))return;
   let pkg;try{const r=await fetch("dados-iniciais.json",{cache:"no-store"});if(!r.ok)return;pkg=await r.json()}catch{return}
   $("#modal").innerHTML=`<div class="ov"><div class="sheet"><div class="sheethead"><h3>Carregar seus dados</h3><button type="button" class="kbbtn">⌄ Recolher teclado</button></div>
-    <p style="margin:0 0 12px;color:var(--muted);font-size:14px">Seus lançamentos estão guardados com senha. Digite a senha para carregar tudo neste aparelho.</p>
+    <p style="margin:0 0 12px;color:var(--muted);font-size:14px">Sua conta ainda está vazia. Digite a senha dos dados iniciais para carregar seus lançamentos. Isso só precisa ser feito uma vez.</p>
     <label class="f">Senha</label><input id="sPw" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="palavra-palavra-palavra-palavra-00">
     <div id="sErr" class="hint" style="color:var(--red)"></div>
     <div class="acts"><button class="btn" id="sSkip">Começar vazio</button><span class="sp"></span><button class="btn primary" id="sGo">Carregar</button></div></div></div>`;
@@ -267,7 +267,8 @@ async function ofertarDadosIniciais(){
     try{
       const o=await decifrar(pkg,pw);
       if(!o||o.app!=="minhas-financas")throw 0;
-      db._load(o.docs);$("#modal").innerHTML="";
+      $("#sGo").textContent="Carregando…";
+      await db._load(o.docs);$("#modal").innerHTML="";
       toast(`${Object.keys(o.docs).filter(k=>k.startsWith("itens/")).length} lançamentos carregados`);
     }catch{$("#sGo").disabled=false;$("#sGo").textContent="Carregar";$("#sErr").textContent="Senha incorreta. Confira e tente de novo."}
   };
@@ -276,9 +277,94 @@ async function ofertarDadosIniciais(){
   $("#sSkip").onclick=()=>{lsSet("minhas-financas-sem-carga","1");$("#modal").innerHTML=""};
 }
 
+/* ================= Firebase (fora do Claude) ================= */
+const FB_CONFIG={apiKey:"AIzaSyDYmQ6dxjH8bQ3Bje17uoiz7BfeyrMa9ms",authDomain:"minhas-financas-b4d29.firebaseapp.com",projectId:"minhas-financas-b4d29",storageBucket:"minhas-financas-b4d29.firebasestorage.app",messagingSenderId:"541514377158",appId:"1:541514377158:web:3c85fd182513e9609634c7"};
+const FB_URL="https://www.gstatic.com/firebasejs/10.12.5/";
+let fb=null,usuario=null;
+// grava sem travar a tela quando estiver sem internet: o cache local já mostra a mudança
+const soft=p=>{p.catch(e=>showErr("Não consegui sincronizar uma alteração ("+(e.code||e.message||e)+")."));return Promise.race([p,new Promise(r=>setTimeout(r,1500))])};
+function fbDb(root){
+  const {fs,fdb}=fb, P=p=>root+"/"+p;
+  const sd=s=>({id:s.id,exists:s.exists(),data:()=>s.data(),metadata:s.metadata});
+  const docRef=p=>{const r=fs.doc(fdb,P(p));return {id:r.id,path:p,
+    get:async()=>sd(await fs.getDoc(r)),
+    set:d=>soft(fs.setDoc(r,d)),update:d=>soft(fs.updateDoc(r,d)),delete:()=>soft(fs.deleteDoc(r)),
+    onSnapshot:(n,e)=>fs.onSnapshot(r,s=>n(sd(s)),e)}};
+  const query=(col,cons=[])=>{
+    const q=()=>fs.query(fs.collection(fdb,P(col)),...cons);
+    const sq=s=>({docs:s.docs.map(sd),size:s.size,empty:s.empty,metadata:s.metadata,docChanges:()=>[]});
+    return {where:(f,op,v)=>query(col,[...cons,fs.where(f,op,v)]),limit:n=>query(col,[...cons,fs.limit(n)]),orderBy:(f,d)=>query(col,[...cons,fs.orderBy(f,d)]),
+      get:async()=>sq(await fs.getDocs(q())),
+      onSnapshot:(n,e)=>fs.onSnapshot(q(),s=>n(sq(s)),e),
+      doc:id=>docRef(col+"/"+(id||fs.doc(fs.collection(fdb,P(col))).id)),
+      add:async d=>{const r=fs.doc(fs.collection(fdb,P(col)));await soft(fs.setDoc(r,d));return docRef(col+"/"+r.id)}};
+  };
+  const COLS=["itens","config","meses"];
+  return {doc:docRef,collection:c=>query(c),
+    _hasItens:async()=>!(await fs.getDocsFromServer(fs.query(fs.collection(fdb,P("itens")),fs.limit(1)))).empty,
+    _dump:async()=>{const o={};for(const c of COLS){const s=await fs.getDocs(fs.collection(fdb,P(c)));s.docs.forEach(d=>o[c+"/"+d.id]=d.data())}return o},
+    _load:async docs=>{
+      // apaga o que existe e grava o backup, em lotes de 400
+      const ops=[];
+      for(const c of COLS){const s=await fs.getDocs(fs.collection(fdb,P(c)));s.docs.forEach(d=>ops.push(["del",d.ref]))}
+      for(const [k,v] of Object.entries(docs)){const parts=k.split("/");if(parts.length===2&&COLS.includes(parts[0]))ops.push(["set",fs.doc(fdb,P(k)),v])}
+      for(let i=0;i<ops.length;i+=400){const b=fs.writeBatch(fdb);ops.slice(i,i+400).forEach(([t,r,v])=>t==="del"?b.delete(r):b.set(r,v));await b.commit()}
+    }};
+}
+async function carregarFirebase(){
+  const [appM,authM,fsM]=await Promise.all([import(FB_URL+"firebase-app.js"),import(FB_URL+"firebase-auth.js"),import(FB_URL+"firebase-firestore.js")]);
+  const app=appM.initializeApp(FB_CONFIG);
+  let fdb;try{fdb=fsM.initializeFirestore(app,{localCache:fsM.persistentLocalCache({tabManager:fsM.persistentMultipleTabManager()})})}catch{fdb=fsM.getFirestore(app)}
+  fb={app,auth:authM.getAuth(app),A:authM,fs:fsM,fdb};
+  fb.auth.languageCode="pt";
+}
+function telaLogin(msg){
+  $("#main").innerHTML=`<section class="card" style="padding:18px 16px">
+    <h2 style="margin:0 0 6px;font-size:17px">Entrar</h2>
+    <p style="margin:0 0 14px;color:var(--muted);font-size:13.5px">Entre para ver seus lançamentos. Eles ficam sincronizados entre o celular e o computador.</p>
+    <button class="btn primary" id="lgG" style="width:100%;padding:12px">Entrar com Google</button>
+    <div style="text-align:center;color:var(--muted);font-size:12px;margin:14px 0">ou com e-mail e senha</div>
+    <div class="sheet" style="padding:0;max-height:none;background:none">
+      <label class="f">E-mail</label><input id="lgE" type="email" autocomplete="username" enterkeyhint="next" style="margin-bottom:10px">
+      <label class="f">Senha</label><input id="lgP" type="password" autocomplete="current-password" enterkeyhint="go">
+    </div>
+    <div id="lgErr" class="hint" style="color:var(--red);min-height:16px">${esc(msg||"")}</div>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="lgNew" style="flex:1">Criar conta</button><button class="btn primary" id="lgIn" style="flex:1">Entrar</button></div>
+    <button class="btn" id="lgRst" style="border:0;background:none;color:var(--muted);font-weight:500;margin-top:8px;padding:6px 0">Esqueci a senha</button>
+  </section>`;
+  const A=fb.A,err=m=>$("#lgErr").textContent=m;
+  const traduz=e=>({"auth/invalid-credential":"E-mail ou senha incorretos.","auth/wrong-password":"E-mail ou senha incorretos.","auth/user-not-found":"Não existe conta com esse e-mail.","auth/email-already-in-use":"Já existe uma conta com esse e-mail. Use Entrar.","auth/weak-password":"A senha precisa ter pelo menos 6 caracteres.","auth/invalid-email":"E-mail inválido.","auth/popup-closed-by-user":"Login cancelado.","auth/network-request-failed":"Sem conexão com a internet."}[e.code]||("Não consegui entrar ("+(e.code||e.message)+")."));
+  $("#lgG").onclick=async()=>{err("");const p=new A.GoogleAuthProvider();p.setCustomParameters({prompt:"select_account"});
+    try{await A.signInWithPopup(fb.auth,p)}catch(e){
+      if(["auth/popup-blocked","auth/operation-not-supported-in-this-environment","auth/cancelled-popup-request"].includes(e.code)){try{await A.signInWithRedirect(fb.auth,p)}catch(e2){err(traduz(e2))}}
+      else err(traduz(e))}};
+  const em=()=>$("#lgE").value.trim(),pw=()=>$("#lgP").value;
+  $("#lgIn").onclick=async()=>{err("");if(!em()||!pw())return err("Preencha e-mail e senha.");try{await A.signInWithEmailAndPassword(fb.auth,em(),pw())}catch(e){err(traduz(e))}};
+  $("#lgNew").onclick=async()=>{err("");if(!em()||!pw())return err("Preencha e-mail e uma senha (mín. 6 caracteres).");try{await A.createUserWithEmailAndPassword(fb.auth,em(),pw())}catch(e){err(traduz(e))}};
+  $("#lgRst").onclick=async()=>{err("");if(!em())return err("Digite seu e-mail acima.");try{await A.sendPasswordResetEmail(fb.auth,em());err("Enviei um e-mail para redefinir a senha.")}catch(e){err(traduz(e))}};
+  $("#lgP").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();$("#lgIn").click()}},true);
+}
+async function sair(){try{await fb.A.signOut(fb.auth)}catch{}location.reload()}
+
+function iniciarDados(){
+  itens=db.collection("itens");
+  db.doc("config/geral").onSnapshot(s=>{config=s.exists?{orcamento:{},...s.data()}:{orcamento:{}};render()},()=>{});
+  subscribe();
+}
+
 (async()=>{
   if(IN_CLAUDE){try{db=await claude.use("db")}catch{}}
-  if(!db){db=localDb();modoLocal=true;setTimeout(ofertarDadosIniciais,0)}
+  if(!db){
+    modoLocal=true;
+    try{await carregarFirebase()}catch(e){$("#main").innerHTML='<div class="status">Não consegui carregar o app. Verifique a internet e abra de novo.</div>';return}
+    try{await fb.A.getRedirectResult(fb.auth)}catch(e){}
+    fb.A.onAuthStateChanged(fb.auth,u=>{
+      if(!u){usuario=null;db=null;telaLogin();return}
+      if(usuario&&usuario.uid===u.uid)return;
+      usuario=u;db=fbDb("users/"+u.uid);iniciarDados();setTimeout(ofertarDadosIniciais,300);
+    });
+    return;
+  }
   itens=db.collection("itens");
   db.doc("config/geral").onSnapshot(s=>{config=s.exists?{orcamento:{},...s.data()}:{orcamento:{}};render()},()=>{});
   subscribe();
@@ -327,7 +413,7 @@ function byBloco(b){return items.filter(x=>x.bloco===b).sort((a,c)=>(a.data||"9"
 function render(){
   $("#label").textContent=view==="ano"?cur.slice(0,4):mkLabel(cur);
   if(view==="ano"){renderYear();return}
-  if(!db)return;
+  if(!db||!itens)return;
   if(!loaded&&!items.length){$("#main").innerHTML='<div class="status">Carregando…</div>';return}
   const g=byBloco("gasto"),f=byBloco("fixo"),p=byBloco("parcela"),en=byBloco("entrada"),iv=byBloco("invest");
   const totG=sum(g),totF=sum(f),totP=sum(p),total=totG+totF+totP,totE=sum(en),totI=sum(iv),saldo=totE-total;
@@ -624,11 +710,11 @@ function renderYear(){
     <table><tr><th>Categoria</th><th>Total</th><th>%</th></tr>
     ${cats.map(x=>`<tr><td>${esc(x.c)}<div class="bar"><i style="width:${x.v/(cats[0]?.v||1)*100}%"></i></div></td><td>${brl(x.v)}</td><td>${pct(T.g?x.v/T.g:0)}</td></tr>`).join("")||'<tr><td colspan="3" class="empty">Sem gastos neste ano.</td></tr>'}
     </table></div></section>
-  ${modoLocal?`<section class="card"><header><h2>Backup</h2></header><div class="body" style="padding:12px 14px">
-    <p style="margin:0 0 10px;color:var(--muted);font-size:13px">Seus dados ficam salvos só neste aparelho. Baixe um backup de vez em quando. Último backup: <b>${esc(lsGet("minhas-financas-ultimo-backup","nunca"))}</b>.</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bkDown">⬇ Baixar backup</button><button class="btn" id="bkUp">⬆ Restaurar backup</button></div>
+  ${modoLocal?`<section class="card"><header><h2>Conta e backup</h2></header><div class="body" style="padding:12px 14px">
+    <p style="margin:0 0 10px;color:var(--muted);font-size:13px">Conectado como <b>${esc(usuario?.email||"")}</b>. Seus dados ficam na sua conta e sincronizam entre os aparelhos. Último backup baixado neste aparelho: <b>${esc(lsGet("minhas-financas-ultimo-backup","nunca"))}</b>.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bkDown">⬇ Baixar backup</button><button class="btn" id="bkUp">⬆ Restaurar backup</button><button class="btn danger" id="bkOut">Sair</button></div>
     <input id="bkFile" type="file" accept="application/json,.json" style="display:none"></div></section>`:""}`;
-  if(modoLocal){$("#bkDown").onclick=baixarBackup;$("#bkUp").onclick=()=>$("#bkFile").click();$("#bkFile").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)restaurarBackup(f)}}
+  if(modoLocal){$("#bkOut").onclick=sair;$("#bkDown").onclick=baixarBackup;$("#bkUp").onclick=()=>$("#bkFile").click();$("#bkFile").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)restaurarBackup(f)}}
   document.querySelectorAll("tr[data-mk]").forEach(tr=>tr.onclick=()=>{cur=tr.dataset.mk;document.querySelector('.seg button[data-view="mes"]').click();subscribe()});
 }
 

@@ -11,8 +11,9 @@ Controle financeiro pessoal para o celular, no formato da minha planilha mensal.
 
 ## Onde ficam os dados
 
-Os lançamentos ficam salvos **só no navegador do aparelho** (localStorage). Nada é enviado para o GitHub nem para nenhum servidor.
-Use **Ano → Backup → Baixar backup** de vez em quando, e **Restaurar backup** para levar os dados para outro aparelho.
+Os lançamentos ficam no **Firebase (Cloud Firestore)**, na conta de quem fez login (Google ou e-mail e senha), e sincronizam entre celular e computador. As regras do banco só deixam cada usuário ler e gravar os próprios dados (`users/{uid}/...`). A configuração do Firebase que aparece no código é pública por natureza; a proteção vem do login e das regras.
+
+O app também guarda uma cópia local para funcionar sem internet; as mudanças sobem quando a conexão volta. Em **Ano → Conta e backup** dá para baixar e restaurar um backup.
 
 No iPhone, abra no Safari e use **Compartilhar → Adicionar à Tela de Início**. Assim ele abre como app e o iOS não apaga os dados por falta de uso.
 
