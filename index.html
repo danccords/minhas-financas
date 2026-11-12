@@ -131,6 +131,30 @@ body.kb .kbbtn{display:inline-block}
 .toast.show{opacity:1}
 .hidden{display:none!important}
 .status{text-align:center;color:var(--muted);padding:30px 0}
+/* chat IA */
+.chatfab{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));z-index:15;width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.chatfab svg{width:26px;height:26px}
+.chatbox{position:fixed;z-index:25;right:16px;bottom:16px;width:min(420px,calc(100vw - 32px));height:min(620px,calc(100vh - 32px));background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}
+@media (max-width:560px){.chatbox{inset:0;width:auto;height:auto;border-radius:0;border:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}}
+.chathead{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
+.chathead b{font-size:15px}.chathead small{display:block;color:var(--muted);font-size:11.5px;font-weight:400}
+.chatmsgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:88%;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-wrap:break-word}
+.msg.eu{align-self:flex-end;background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:4px;white-space:pre-wrap}
+.msg.ia{align-self:flex-start;background:var(--soft);border-bottom-left-radius:4px}
+.msg.ia p{margin:0 0 6px}.msg.ia p:last-child{margin:0}.msg.ia ul{margin:4px 0 6px;padding-left:18px}
+.msg.ia table{width:auto;font-size:12.5px;margin:6px 0;border-collapse:collapse}.msg.ia th,.msg.ia td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left}
+.msg.ia td:last-child,.msg.ia th:last-child{text-align:right}
+.msg.erro{background:var(--red-soft);color:var(--red)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 10px;cursor:pointer;text-align:left}
+.chatform{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+.chatform textarea{flex:1;resize:none;font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:9px 11px;max-height:120px;min-height:42px}
+.chatform button{width:42px;height:42px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center}
+.chatform button:disabled{opacity:.45}
+.dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--muted);margin:0 2px;animation:bl 1.2s infinite}
+.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+@keyframes bl{0%,80%,100%{opacity:.25}40%{opacity:1}}
 </style>
 </head>
 <body>
@@ -153,6 +177,12 @@ body.kb .kbbtn{display:inline-block}
 </div>
 <div id="modal"></div>
 <div class="toast" id="toast"></div>
+<button class="chatfab hidden" id="chatFab" aria-label="Perguntar à IA"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg></button>
+<div class="chatbox hidden" id="chatBox">
+  <div class="chathead"><div><b>Assistente financeiro</b><small>Responde com base nos seus lançamentos</small></div><button class="iconbtn" id="chatClose" aria-label="Fechar">✕</button></div>
+  <div class="chatmsgs" id="chatMsgs"></div>
+  <form class="chatform" id="chatForm"><textarea id="chatIn" rows="1" placeholder="Pergunte sobre seus gastos…" enterkeyhint="send"></textarea><button id="chatSend" aria-label="Enviar"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></form>
+</div>
 
 <script>
 /* ================= constantes ================= */
@@ -284,7 +314,9 @@ async function ofertarDadosIniciais(){
 
 /* ================= Firebase (fora do Claude) ================= */
 const FB_CONFIG={apiKey:"AIzaSyDYmQ6dxjH8bQ3Bje17uoiz7BfeyrMa9ms",authDomain:"minhas-financas-b4d29.firebaseapp.com",projectId:"minhas-financas-b4d29",storageBucket:"minhas-financas-b4d29.firebasestorage.app",messagingSenderId:"541514377158",appId:"1:541514377158:web:3c85fd182513e9609634c7"};
-const FB_URL="https://www.gstatic.com/firebasejs/10.12.5/";
+const FB_URL="https://www.gstatic.com/firebasejs/12.16.0/";
+const RECAPTCHA_KEY="6LfX7hsuAAAAACPSfM73o9sByW7gV9m7iqhASpoW";
+const IA_MODELOS=["gemini-3-flash-preview","gemini-flash-latest"];
 let fb=null,usuario=null;
 // grava sem travar a tela quando estiver sem internet: o cache local já mostra a mudança
 const soft=p=>{p.catch(e=>showErr("Não consegui sincronizar uma alteração ("+(e.code||e.message||e)+")."));return Promise.race([p,new Promise(r=>setTimeout(r,1500))])};
@@ -319,12 +351,14 @@ function fbDb(root){
 async function carregarFirebase(){
   const [appM,authM,fsM]=await Promise.all([import(FB_URL+"firebase-app.js"),import(FB_URL+"firebase-auth.js"),import(FB_URL+"firebase-firestore.js")]);
   const app=appM.initializeApp(FB_CONFIG);
+  // App Check (protege a IA contra uso indevido); se falhar, o resto do app segue funcionando
+  try{const ac=await import(FB_URL+"firebase-app-check.js");ac.initializeAppCheck(app,{provider:new ac.ReCaptchaEnterpriseProvider(RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true})}catch(e){console.warn("App Check",e)}
   let fdb;try{fdb=fsM.initializeFirestore(app,{localCache:fsM.persistentLocalCache({tabManager:fsM.persistentMultipleTabManager()})})}catch{fdb=fsM.getFirestore(app)}
   fb={app,auth:authM.getAuth(app),A:authM,fs:fsM,fdb};
   fb.auth.languageCode="pt";
 }
 function telaLogin(msg){
-  $("#label").textContent=mkLabel(cur);
+  $("#label").textContent=mkLabel(cur);mostrarChat(false);$("#chatBox").classList.add("hidden");
   $("#main").innerHTML=`<section class="card" style="padding:18px 16px">
     <h2 style="margin:0 0 6px;font-size:17px">Entrar</h2>
     <p style="margin:0 0 14px;color:var(--muted);font-size:13.5px">Entre para ver seus lançamentos. Eles ficam sincronizados entre o celular e o computador.</p>
@@ -352,6 +386,120 @@ function telaLogin(msg){
 }
 async function sair(){try{await fb.A.signOut(fb.auth)}catch{}location.reload()}
 
+/* ================= chat com IA ================= */
+let iaMod=null,chatHist=[],chatBusy=false,ctxCache=null;
+function mostrarChat(on){$("#chatFab").classList.toggle("hidden",!on)}
+function mdHtml(t){
+  const linhas=esc(t).split("\n");let h="",lista=false,tab=[];
+  const inline=x=>x.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g,"$1<i>$2</i>").replace(/`([^`]+)`/g,"<code>$1</code>");
+  const fechaTab=()=>{if(!tab.length)return;
+    const rows=tab.filter(r=>!/^\|?[\s:|-]+\|?$/.test(r)).map(r=>r.replace(/^\||\|$/g,"").split("|").map(c=>c.trim()));
+    h+="<table>"+rows.map((r,i)=>"<tr>"+r.map(c=>i===0?`<th>${inline(c)}</th>`:`<td>${inline(c)}</td>`).join("")+"</tr>").join("")+"</table>";tab=[]};
+  for(const l of linhas){
+    if(/^\s*\|.*\|\s*$/.test(l)){if(lista){h+="</ul>";lista=false}tab.push(l.trim());continue}else fechaTab();
+    const m=/^\s*(?:[-*•]|\d+\.)\s+(.*)/.exec(l);
+    if(m){if(!lista){h+="<ul>";lista=true}h+=`<li>${inline(m[1])}</li>`;continue}
+    if(lista){h+="</ul>";lista=false}
+    if(/^#{1,4}\s+/.test(l)){h+=`<p><b>${inline(l.replace(/^#+\s+/,""))}</b></p>`;continue}
+    if(l.trim())h+=`<p>${inline(l)}</p>`;
+  }
+  fechaTab();if(lista)h+="</ul>";return h;
+}
+function addMsg(quem,texto){
+  const el=document.createElement("div");el.className="msg "+quem;
+  if(quem==="ia")el.innerHTML=mdHtml(texto);else el.textContent=texto;
+  $("#chatMsgs").appendChild(el);$("#chatMsgs").scrollTop=$("#chatMsgs").scrollHeight;return el;
+}
+function chatBoasVindas(){
+  if($("#chatMsgs").children.length)return;
+  addMsg("ia","Oi! Pergunte o que quiser sobre seus lançamentos. Por exemplo:");
+  const c=document.createElement("div");c.className="chips";
+  ["Quanto gastei de restaurante mês passado?","Quanto ainda posso gastar este mês?","Quais foram meus maiores gastos em outubro?","Quando terminam minhas parcelas?"].forEach(q=>{const b=document.createElement("button");b.type="button";b.textContent=q;b.onclick=()=>{c.remove();enviarChat(q)};c.appendChild(b)});
+  $("#chatMsgs").appendChild(c);
+}
+async function contextoFinanceiro(){
+  if(ctxCache&&Date.now()-ctxCache.t<60000)return ctxCache.txt;
+  const [si,sm]=await Promise.all([db.collection("itens").get(),db.collection("meses").get()]);
+  const A=si.docs.map(d=>d.data());
+  const pagos={};sm.docs.forEach(d=>pagos[d.id]=(d.data().pagos)||{});
+  const r2=v=>Math.round((+v||0)*100)/100;
+  // resumo por mês de pagamento
+  const meses={};
+  A.forEach(x=>{const m=x.mes;if(!m)return;const o=meses[m]||(meses[m]={entradas:0,investido:0,gastos:0,porTipo:{},porCategoria:{}});
+    const v=+x.valor||0;
+    if(x.bloco==="entrada")o.entradas+=v;else if(x.bloco==="invest")o.investido+=v;
+    else{o.gastos+=v;const t=x.tipo||"?";o.porTipo[t]=(o.porTipo[t]||0)+v;const c=x.categoria||"Sem categoria";o.porCategoria[c]=(o.porCategoria[c]||0)+v}});
+  const resumo=Object.keys(meses).sort().map(m=>{const o=meses[m];
+    return `${m}: entradas ${r2(o.entradas)} | gastos ${r2(o.gastos)} | saldo ${r2(o.entradas-o.gastos)} | investido ${r2(o.investido)} | por tipo: ${Object.entries(o.porTipo).map(([k,v])=>k+" "+r2(v)+(pagos[m]&&pagos[m][k]?" (pago)":"")).join(", ")} | por categoria: ${Object.entries(o.porCategoria).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+" "+r2(v)).join(", ")}`}).join("\n");
+  // compras por mês da compra e categoria (só gastos com data)
+  const comp={};A.filter(x=>x.bloco==="gasto"&&x.data).forEach(x=>{const m=x.data.slice(0,7),c=x.categoria||"Sem categoria";comp[m]=comp[m]||{};comp[m][c]=(comp[m][c]||0)+(+x.valor||0)});
+  const resumoCompra=Object.keys(comp).sort().map(m=>`${m}: `+Object.entries(comp[m]).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+" "+r2(v)).join(", ")).join("\n");
+  const lin=A.slice().sort((a,b)=>(a.mes||"").localeCompare(b.mes||"")||(a.data||"").localeCompare(b.data||"")).map(x=>[x.mes,x.data||"-",x.bloco,x.nome,x.tipo||"-",x.categoria||"-",r2(x.valor),x.parcelas||"",x.bloco==="fixo"?(x.pago?"pago":"nao pago"):""].join(";")).join("\n");
+  const txt=`HOJE: ${todayISO()}
+FECHAMENTO DOS CARTÕES (dia do mês): ${JSON.stringify(config.fechamento||{})}. A fatura do Nubank vence no dia 10.
+VALOR ESPERADO POR CATEGORIA (orçamento mensal): ${JSON.stringify(config.orcamento||{})}
+
+RESUMO POR MÊS DE PAGAMENTO (valores em R$, já somados pelo app; use estes totais quando servirem):
+${resumo}
+
+COMPRAS POR MÊS DA COMPRA E CATEGORIA (só bloco "gasto", pela data da compra):
+${resumoCompra}
+
+LANÇAMENTOS (mes_pagamento;data_compra;bloco;nome;tipo;categoria;valor;parcela;status_fixo):
+${lin}`;
+  ctxCache={t:Date.now(),txt};return txt;
+}
+const IA_INSTRUCAO=`Você é o assistente do app "Minhas Finanças" do Daniel, um controle financeiro pessoal em reais (R$). Responda sempre em português do Brasil, de forma curta e direta, como numa conversa no celular.
+Como os dados funcionam:
+- "mes_pagamento" (AAAA-MM) é o mês em que o dinheiro sai da conta. Débito/Pix sai no mês da compra. Compras no cartão vão para a fatura pelo dia de fechamento (Nubank fecha dia 3: compras a partir do dia 3 entram na fatura do mês seguinte, que vence dia 10).
+- "data_compra" é o dia real da compra.
+- Blocos: gasto (gastos do mês), fixo (contas e assinaturas recorrentes), parcela (compras parceladas, com "n/total"), entrada (salário etc.), invest (investimentos).
+- Saldo do mês = entradas − (gastos + fixos + parcelas) do mês de pagamento.
+Regras:
+- Quando perguntarem "quanto gastei em X no mês Y", some pela data da compra, salvo se pedirem explicitamente o que foi pago/sai no mês. Diga qual critério usou em meia frase.
+- "Mês passado" e "este mês" são relativos à data de HOJE.
+- Use os totais já calculados do resumo sempre que possível; se precisar somar lançamentos, confira a conta duas vezes. Nunca invente lançamentos ou valores que não estejam nos dados.
+- Mostre valores no formato R$ 1.234,56. Use uma lista ou tabela curta quando ajudar; evite textos longos.
+- Se a pergunta não tiver relação com as finanças dele, responda brevemente e volte ao assunto.
+- Você não é consultor financeiro: pode sugerir organização de gastos e metas com base nos números, sem recomendar investimentos específicos.`;
+async function modeloIA(nome){
+  const AI=await import(FB_URL+"firebase-ai.js");
+  const ai=AI.getAI(fb.app,{backend:new AI.GoogleAIBackend()});
+  return AI.getGenerativeModel(ai,{model:nome,systemInstruction:IA_INSTRUCAO});
+}
+async function enviarChat(texto){
+  texto=(texto||"").trim();if(!texto||chatBusy)return;
+  chatBusy=true;$("#chatSend").disabled=true;
+  document.querySelectorAll("#chatMsgs .chips").forEach(c=>c.remove());
+  addMsg("eu",texto);
+  const pens=addMsg("ia","");pens.innerHTML='<span class="dots"><span></span><span></span><span></span></span>';
+  try{
+    const ctx=await contextoFinanceiro();
+    const contents=[{role:"user",parts:[{text:"DADOS FINANCEIROS ATUAIS:\n"+ctx}]},{role:"model",parts:[{text:"Entendido. Vou responder com base nesses dados."}]},
+      ...chatHist,{role:"user",parts:[{text:texto}]}];
+    let resp=null,ultimoErro=null;
+    for(const nome of (iaMod?[iaMod]:IA_MODELOS)){
+      try{const m=await modeloIA(nome);const r=await m.generateContent({contents});resp=r.response.text();iaMod=nome;break}
+      catch(e){ultimoErro=e;if(!/404|not found|NOT_FOUND/i.test(String(e.message||e)))break}
+    }
+    if(resp==null)throw ultimoErro||new Error("sem resposta");
+    pens.innerHTML=mdHtml(resp);
+    chatHist.push({role:"user",parts:[{text:texto}]},{role:"model",parts:[{text:resp}]});
+    if(chatHist.length>20)chatHist=chatHist.slice(-20);
+  }catch(e){
+    console.error(e);pens.classList.add("erro");
+    const m=String(e.message||e);
+    pens.textContent=/429|quota|RESOURCE_EXHAUSTED/i.test(m)?"Muitas perguntas em pouco tempo (limite do plano gratuito). Espere um minuto e tente de novo.":/network|Failed to fetch/i.test(m)?"Sem conexão com a internet.":"Não consegui responder agora. Tente de novo em instantes.";
+  }
+  $("#chatMsgs").scrollTop=$("#chatMsgs").scrollHeight;
+  chatBusy=false;$("#chatSend").disabled=false;
+}
+$("#chatFab").onclick=()=>{$("#chatBox").classList.remove("hidden");$("#chatFab").classList.add("hidden");chatBoasVindas();setTimeout(()=>$("#chatIn").focus(),50)};
+$("#chatClose").onclick=()=>{$("#chatBox").classList.add("hidden");$("#chatFab").classList.remove("hidden")};
+$("#chatForm").addEventListener("submit",e=>{e.preventDefault();const t=$("#chatIn").value;$("#chatIn").value="";$("#chatIn").style.height="";enviarChat(t)});
+$("#chatIn").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();e.stopPropagation();$("#chatForm").requestSubmit()}},true);
+$("#chatIn").addEventListener("input",e=>{e.target.style.height="";e.target.style.height=Math.min(120,e.target.scrollHeight)+"px"});
+
 /* ================= controle de acesso ================= */
 let souDono=false,acessoLista=null;
 async function verificarAcesso(u){
@@ -371,7 +519,7 @@ async function verificarAcesso(u){
     if(e.code==="permission-denied"){telaSemAcesso(u);return}
     // sem internet: segue com o que estiver em cache
   }
-  db=fbDb("users/"+u.uid);iniciarDados();setTimeout(ofertarDadosIniciais,300);
+  db=fbDb("users/"+u.uid);iniciarDados();setTimeout(ofertarDadosIniciais,300);mostrarChat(true);
 }
 function telaSemAcesso(u){
   $("#main").innerHTML=`<section class="card" style="padding:18px 16px">

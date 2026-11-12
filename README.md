@@ -8,6 +8,7 @@ Controle financeiro pessoal para o celular, no formato da minha planilha mensal.
 - **Virada de mês:** copiar fixos e trazer parcelas do mês anterior (avança 5/10 → 6/10)
 - **Por categoria** (com valor esperado) e **por tipo de pagamento** (com "fatura paga?")
 - **Visão anual** com gráfico de entradas × gastos
+- **Assistente com IA** (botão no canto): perguntas em linguagem natural sobre os lançamentos, usando Gemini via Firebase AI Logic (plano gratuito), protegido por App Check
 
 ## Onde ficam os dados
 
