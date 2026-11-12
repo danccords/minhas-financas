@@ -11,7 +11,7 @@ Controle financeiro pessoal para o celular, no formato da minha planilha mensal.
 
 ## Onde ficam os dados
 
-Os lançamentos ficam no **Firebase (Cloud Firestore)**, na conta de quem fez login (Google ou e-mail e senha), e sincronizam entre celular e computador. As regras do banco só deixam cada usuário ler e gravar os próprios dados (`users/{uid}/...`). A configuração do Firebase que aparece no código é pública por natureza; a proteção vem do login e das regras.
+Os lançamentos ficam no **Firebase (Cloud Firestore)**, na conta de quem fez login (Google ou e-mail e senha), e sincronizam entre celular e computador. As regras do banco só deixam cada usuário ler e gravar os próprios dados (`users/{uid}/...`), e só para contas liberadas: o dono e os e-mails que ele adicionar em **Ano → Quem pode usar o app**. Contas com e-mail e senha precisam confirmar o e-mail. A configuração do Firebase que aparece no código é pública por natureza; a proteção vem do login e das regras.
 
 O app também guarda uma cópia local para funcionar sem internet; as mudanças sobem quando a conexão volta. Em **Ano → Conta e backup** dá para baixar e restaurar um backup.
 

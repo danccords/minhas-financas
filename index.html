@@ -341,11 +341,69 @@ function telaLogin(msg){
       else err(traduz(e))}};
   const em=()=>$("#lgE").value.trim(),pw=()=>$("#lgP").value;
   $("#lgIn").onclick=async()=>{err("");if(!em()||!pw())return err("Preencha e-mail e senha.");try{await A.signInWithEmailAndPassword(fb.auth,em(),pw())}catch(e){err(traduz(e))}};
-  $("#lgNew").onclick=async()=>{err("");if(!em()||!pw())return err("Preencha e-mail e uma senha (mín. 6 caracteres).");try{await A.createUserWithEmailAndPassword(fb.auth,em(),pw())}catch(e){err(traduz(e))}};
+  $("#lgNew").onclick=async()=>{err("");if(!em()||!pw())return err("Preencha e-mail e uma senha (mín. 6 caracteres).");try{const c=await A.createUserWithEmailAndPassword(fb.auth,em(),pw());try{await A.sendEmailVerification(c.user)}catch{}}catch(e){err(traduz(e))}};
   $("#lgRst").onclick=async()=>{err("");if(!em())return err("Digite seu e-mail acima.");try{await A.sendPasswordResetEmail(fb.auth,em());err("Enviei um e-mail para redefinir a senha.")}catch(e){err(traduz(e))}};
   $("#lgP").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();$("#lgIn").click()}},true);
 }
 async function sair(){try{await fb.A.signOut(fb.auth)}catch{}location.reload()}
+
+/* ================= controle de acesso ================= */
+let souDono=false,acessoLista=null;
+async function verificarAcesso(u){
+  $("#main").innerHTML='<div class="status">Verificando acesso…</div>';
+  if(u.providerData.every(p=>p.providerId==="password")&&!u.emailVerified){telaVerificar(u);return}
+  const {fs,fdb}=fb;
+  // dono: consegue ler a lista de acesso
+  try{
+    const r=fs.doc(fdb,"acesso/lista");const s=await fs.getDoc(r);
+    souDono=true;
+    if(!s.exists()){await fs.setDoc(r,{emails:[]})}
+    fs.onSnapshot(r,x=>{acessoLista=x.exists()?(x.data().emails||[]):[];if(view==="ano")render()},()=>{});
+  }catch{souDono=false}
+  // pode usar: consegue ler a própria pasta
+  try{await fs.getDocFromServer(fs.doc(fdb,"users/"+u.uid+"/config/geral"))}
+  catch(e){
+    if(e.code==="permission-denied"){telaSemAcesso(u);return}
+    // sem internet: segue com o que estiver em cache
+  }
+  db=fbDb("users/"+u.uid);iniciarDados();setTimeout(ofertarDadosIniciais,300);
+}
+function telaSemAcesso(u){
+  $("#main").innerHTML=`<section class="card" style="padding:18px 16px">
+    <h2 style="margin:0 0 6px;font-size:17px">Sem acesso</h2>
+    <p style="margin:0 0 14px;color:var(--muted);font-size:14px">A conta <b>${esc(u.email||"")}</b> ainda não foi liberada. Peça a quem te enviou o app para adicionar esse e-mail e depois toque em "Tentar de novo".</p>
+    <div style="display:flex;gap:8px"><button class="btn" id="saOut" style="flex:1">Sair</button><button class="btn primary" id="saRe" style="flex:1">Tentar de novo</button></div></section>`;
+  $("#saOut").onclick=sair;$("#saRe").onclick=()=>verificarAcesso(u);
+}
+function telaVerificar(u){
+  $("#main").innerHTML=`<section class="card" style="padding:18px 16px">
+    <h2 style="margin:0 0 6px;font-size:17px">Confirme seu e-mail</h2>
+    <p style="margin:0 0 14px;color:var(--muted);font-size:14px">Enviei um link de confirmação para <b>${esc(u.email||"")}</b>. Abra o e-mail, toque no link e depois volte aqui.</p>
+    <div id="vfMsg" class="hint"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="vfOut">Sair</button><button class="btn" id="vfSend">Reenviar e-mail</button><button class="btn primary" id="vfOk" style="flex:1">Já confirmei</button></div></section>`;
+  $("#vfOut").onclick=sair;
+  $("#vfSend").onclick=async()=>{try{await fb.A.sendEmailVerification(u);$("#vfMsg").textContent="E-mail reenviado."}catch(e){$("#vfMsg").textContent="Não consegui reenviar agora. Tente em alguns minutos."}};
+  $("#vfOk").onclick=async()=>{await u.reload();await u.getIdToken(true);if(u.emailVerified)verificarAcesso(u);else $("#vfMsg").textContent="Ainda não aparece como confirmado. Abra o link do e-mail e tente de novo."};
+}
+async function salvarAcesso(lista){
+  try{await fb.fs.setDoc(fb.fs.doc(fb.fdb,"acesso/lista"),{emails:lista})}catch(e){showErr("Não consegui salvar a lista de acesso ("+(e.code||e)+").")}
+}
+function blocoAcesso(){
+  if(!souDono)return "";
+  const l=acessoLista||[];
+  return `<section class="card"><header><h2>Quem pode usar o app</h2></header><div class="body" style="padding:12px 14px">
+    <p style="margin:0 0 10px;color:var(--muted);font-size:13px">Você sempre tem acesso. Adicione o e-mail (Google ou e-mail usado no cadastro) de quem você quer liberar. Cada pessoa tem a própria planilha, separada da sua.</p>
+    ${l.length?l.map((e,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span style="font-size:14px">${esc(e)}</span><button class="btn danger" data-rmac="${i}" style="padding:5px 10px">Remover</button></div>`).join(""):'<div style="font-size:13px;color:var(--muted);padding:4px 0">Ninguém além de você.</div>'}
+    <div style="display:flex;gap:8px;margin-top:10px" class="sheet" ><input id="acNovo" type="email" placeholder="email@exemplo.com" enterkeyhint="done" style="flex:1;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit"><button class="btn primary" id="acAdd">Adicionar</button></div>
+  </div></section>`;
+}
+function bindAcesso(){
+  if(!souDono)return;
+  document.querySelectorAll("[data-rmac]").forEach(b=>b.onclick=()=>{const l=[...(acessoLista||[])];l.splice(+b.dataset.rmac,1);salvarAcesso(l)});
+  const add=()=>{const e=$("#acNovo").value.trim().toLowerCase();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){toast("E-mail inválido.");return}
+    const l=[...(acessoLista||[])];if(!l.includes(e))l.push(e);salvarAcesso(l);toast("Acesso liberado para "+e)};
+  $("#acAdd").onclick=add;
+}
 
 function iniciarDados(){
   itens=db.collection("itens");
@@ -361,7 +419,7 @@ function iniciarDados(){
     fb.A.onAuthStateChanged(fb.auth,u=>{
       if(!u){usuario=null;db=null;telaLogin();return}
       if(usuario&&usuario.uid===u.uid)return;
-      usuario=u;db=fbDb("users/"+u.uid);iniciarDados();setTimeout(ofertarDadosIniciais,300);
+      usuario=u;verificarAcesso(u);
     });
     return;
   }
@@ -710,11 +768,12 @@ function renderYear(){
     <table><tr><th>Categoria</th><th>Total</th><th>%</th></tr>
     ${cats.map(x=>`<tr><td>${esc(x.c)}<div class="bar"><i style="width:${x.v/(cats[0]?.v||1)*100}%"></i></div></td><td>${brl(x.v)}</td><td>${pct(T.g?x.v/T.g:0)}</td></tr>`).join("")||'<tr><td colspan="3" class="empty">Sem gastos neste ano.</td></tr>'}
     </table></div></section>
+  ${modoLocal?blocoAcesso():""}
   ${modoLocal?`<section class="card"><header><h2>Conta e backup</h2></header><div class="body" style="padding:12px 14px">
     <p style="margin:0 0 10px;color:var(--muted);font-size:13px">Conectado como <b>${esc(usuario?.email||"")}</b>. Seus dados ficam na sua conta e sincronizam entre os aparelhos. Último backup baixado neste aparelho: <b>${esc(lsGet("minhas-financas-ultimo-backup","nunca"))}</b>.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bkDown">⬇ Baixar backup</button><button class="btn" id="bkUp">⬆ Restaurar backup</button><button class="btn danger" id="bkOut">Sair</button></div>
     <input id="bkFile" type="file" accept="application/json,.json" style="display:none"></div></section>`:""}`;
-  if(modoLocal){$("#bkOut").onclick=sair;$("#bkDown").onclick=baixarBackup;$("#bkUp").onclick=()=>$("#bkFile").click();$("#bkFile").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)restaurarBackup(f)}}
+  if(modoLocal){bindAcesso();$("#bkOut").onclick=sair;$("#bkDown").onclick=baixarBackup;$("#bkUp").onclick=()=>$("#bkFile").click();$("#bkFile").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)restaurarBackup(f)}}
   document.querySelectorAll("tr[data-mk]").forEach(tr=>tr.onclick=()=>{cur=tr.dataset.mk;document.querySelector('.seg button[data-view="mes"]').click();subscribe()});
 }
 
