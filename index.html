@@ -189,6 +189,7 @@ let cur=todayISO().slice(0,7);
 let items=[],mesDoc={},config={orcamento:{}};
 let unsubItems=null,unsubMes=null,loaded=false,loadTimer=null;
 const closed=new Set(JSON.parse(lsGet("fechados","[]")));
+const abertos=new Set(); // seções de fatura paga ficam fechadas por padrão
 
 /* ================= armazenamento local (fora do Claude) ================= */
 const LS_KEY="minhas-financas-v1";
@@ -492,11 +493,27 @@ function render(){
     <button id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Novo lançamento</button>
   </div>`;
 
-  h+=section("gasto","Gastos do mês",g,totG,it=>row(it));
-  h+=section("fixo","Fixos",f,totF,it=>rowFixo(it),
+  // faturas de cartão marcadas como pagas saem das listas e vão para uma seção própria
+  const pagosM=mesDoc.pagos||{};
+  const faturaPaga=x=>x.tipo&&x.tipo!=="DÉBITO"&&pagosM[x.tipo];
+  const gV=g.filter(x=>!faturaPaga(x)),fV=f.filter(x=>!faturaPaga(x)),pV=p.filter(x=>!faturaPaga(x));
+  const ocultos=g.length+f.length+p.length-gV.length-fV.length-pV.length;
+  h+=section("gasto","Gastos do mês",gV,sum(gV),it=>row(it));
+  h+=section("fixo","Fixos",fV,sum(fV),it=>rowFixo(it),
       f.length?"":`<button class="btn" data-copy="fixo">Copiar fixos de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
-  h+=section("parcela","Cartão de crédito parcelado",p,totP,it=>row(it,it.parcelas),
+  h+=section("parcela","Cartão de crédito parcelado",pV,sum(pV),it=>row(it,it.parcelas),
       p.length?"":`<button class="btn" data-copy="parcela">Trazer parcelas de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
+  if(ocultos){
+    TIPOS.filter(t=>t!=="DÉBITO"&&pagosM[t]).forEach(t=>{
+      const L=[...g,...f,...p].filter(x=>x.tipo===t).sort((a,c)=>(a.data||"9").localeCompare(c.data||"9"));
+      if(!L.length)return;
+      const k="fat-"+t,aberto=abertos.has(k);
+      h+=`<section class="card ${aberto?"":"closed"}" data-sec="${k}" data-fat="1">
+        <header><h2>Fatura ${esc(t)} <span class="chip">paga ✓</span> <span class="count">${L.length}</span></h2><span><span class="tot">${brl(sum(L))}</span><span class="chev">▾</span></span></header>
+        <div class="body">${L.map(it=>it.bloco==="fixo"?row(it,"fixo"):it.bloco==="parcela"?row(it,it.parcelas):row(it)).join("")}
+        <div class="foot"><span style="flex:1;font-size:12.5px;color:var(--muted);align-self:center">Desmarque "Pago?" em Faturas e débitos para voltar os itens às listas.</span></div></div></section>`;
+    });
+  }
   h+=section("entrada","Entradas",en,totE,it=>row(it,null,true));
   h+=section("invest","Investimentos",iv,totI,it=>row(it,null,true));
 
@@ -537,7 +554,9 @@ function rowFixo(it){
     <div class="m">${it.data?"dia "+it.data.slice(8,10)+" ·":""} ${esc(it.tipo)} ${it.categoria?`<span class="chip">${esc(it.categoria)}</span>`:""} ${it.pago?'<span class="chip">pago</span>':""}</div></div>`;
 }
 function bindMonth(){
-  document.querySelectorAll(".card>header").forEach(h=>h.onclick=()=>{const s=h.parentElement,k=s.dataset.sec;s.classList.toggle("closed");s.classList.contains("closed")?closed.add(k):closed.delete(k);lsSet("fechados",JSON.stringify([...closed]))});
+  document.querySelectorAll(".card>header").forEach(h=>h.onclick=()=>{const s=h.parentElement,k=s.dataset.sec;s.classList.toggle("closed");
+    if(s.dataset.fat){s.classList.contains("closed")?abertos.delete(k):abertos.add(k);return}
+    s.classList.contains("closed")?closed.add(k):closed.delete(k);lsSet("fechados",JSON.stringify([...closed]))});
   document.querySelectorAll(".it[data-id]").forEach(el=>el.onclick=e=>{if(e.target.closest("[data-tick]"))return;const it=items.find(x=>x.id===el.dataset.id);if(it)openEditor({...it})});
   document.querySelectorAll("[data-tick]").forEach(el=>el.onclick=async e=>{e.stopPropagation();const it=items.find(x=>x.id===el.dataset.tick);if(!it)return;try{await itens.doc(it.id).update({pago:!it.pago})}catch(er){showErr("Não consegui salvar ("+(er.code||er)+").")}});
   document.querySelectorAll("[data-add]").forEach(el=>el.onclick=()=>openEditor(blank(el.dataset.add)));
