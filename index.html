@@ -131,6 +131,16 @@ body.kb .kbbtn{display:inline-block}
 .toast.show{opacity:1}
 .hidden{display:none!important}
 .status{text-align:center;color:var(--muted);padding:30px 0}
+/* blocos por origem */
+.filtro{margin:12px 0 2px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}
+.filtro button{white-space:nowrap;font-weight:600}
+.filtro button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.card.src>header{align-items:flex-start}
+.srcinfo{font-size:12px;color:var(--muted);margin-top:2px;font-weight:400}
+.subh{display:flex;justify-content:space-between;padding:8px 14px 4px;font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:var(--soft)}
+.pagobtn{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);cursor:pointer;white-space:nowrap}
+.pagobtn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.card.src.paga>header h2{color:var(--muted)}
 /* chat IA */
 .chatfab{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));z-index:15;width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .chatfab svg{width:26px;height:26px}
@@ -219,7 +229,8 @@ let cur=todayISO().slice(0,7);
 let items=[],mesDoc={},config={orcamento:{}};
 let unsubItems=null,unsubMes=null,loaded=false,loadTimer=null;
 const closed=new Set(JSON.parse(lsGet("fechados","[]")));
-const abertos=new Set(); // seções de fatura paga ficam fechadas por padrão
+const abertos=new Set(); // faturas pagas ficam recolhidas por padrão
+let filtroOrigem="TUDO";
 
 /* ================= armazenamento local (fora do Claude) ================= */
 const LS_KEY="minhas-financas-v1";
@@ -641,27 +652,31 @@ function render(){
     <button id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Novo lançamento</button>
   </div>`;
 
-  // faturas de cartão marcadas como pagas saem das listas e vão para uma seção própria
-  const pagosM=mesDoc.pagos||{};
-  const faturaPaga=x=>x.tipo&&x.tipo!=="DÉBITO"&&pagosM[x.tipo];
-  const gV=g.filter(x=>!faturaPaga(x)),fV=f.filter(x=>!faturaPaga(x)),pV=p.filter(x=>!faturaPaga(x));
-  const ocultos=g.length+f.length+p.length-gV.length-fV.length-pV.length;
-  h+=section("gasto","Gastos do mês",gV,sum(gV),it=>row(it));
-  h+=section("fixo","Fixos",fV,sum(fV),it=>rowFixo(it),
-      f.length?"":`<button class="btn" data-copy="fixo">Copiar fixos de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
-  h+=section("parcela","Cartão de crédito parcelado",pV,sum(pV),it=>row(it,it.parcelas),
-      p.length?"":`<button class="btn" data-copy="parcela">Trazer parcelas de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
-  if(ocultos){
-    TIPOS.filter(t=>t!=="DÉBITO"&&pagosM[t]).forEach(t=>{
-      const L=[...g,...f,...p].filter(x=>x.tipo===t).sort((a,c)=>(a.data||"9").localeCompare(c.data||"9"));
-      if(!L.length)return;
-      const k="fat-"+t,aberto=abertos.has(k);
-      h+=`<section class="card ${aberto?"":"closed"}" data-sec="${k}" data-fat="1">
-        <header><h2>Fatura ${esc(t)} <span class="chip">paga ✓</span> <span class="count">${L.length}</span></h2><span><span class="tot">${brl(sum(L))}</span><span class="chev">▾</span></span></header>
-        <div class="body">${L.map(it=>it.bloco==="fixo"?row(it,"fixo"):it.bloco==="parcela"?row(it,it.parcelas):row(it)).join("")}
-        <div class="foot"><span style="flex:1;font-size:12.5px;color:var(--muted);align-self:center">Desmarque "Pago?" em Faturas e débitos para voltar os itens às listas.</span></div></div></section>`;
-    });
-  }
+  // ===== blocos por origem do dinheiro: Débito/Pix e uma fatura por cartão =====
+  const pagosM=mesDoc.pagos||{},fchM=config.fechamento||{};
+  const todos=[...g,...f,...p];
+  const origens=["DÉBITO",...TIPOS.filter(t=>t!=="DÉBITO"&&todos.some(x=>x.tipo===t))];
+  // itens com tipo fora da lista (ou vazio) entram em Débito/Pix
+  const origemDe=x=>origens.includes(x.tipo)?x.tipo:"DÉBITO";
+  if(!origens.includes(filtroOrigem))filtroOrigem="TUDO";
+  h+=`<div class="chips filtro">${["TUDO",...origens].map(o=>`<button type="button" data-filtro="${esc(o)}" class="${filtroOrigem===o?"on":""}">${o==="TUDO"?"Tudo":o==="DÉBITO"?"Débito / Pix":esc(o)}</button>`).join("")}</div>`;
+  const sub=(titulo,L,fn)=>L.length?`<div class="subh"><span>${titulo}</span><span>${brl(sum(L))}</span></div>${L.map(fn).join("")}`:"";
+  origens.forEach(o=>{
+    if(filtroOrigem!=="TUDO"&&filtroOrigem!==o)return;
+    const L=todos.filter(x=>origemDe(x)===o);
+    const G=L.filter(x=>x.bloco==="gasto"),F=L.filter(x=>x.bloco==="fixo"),P=L.filter(x=>x.bloco==="parcela");
+    const cartao=o!=="DÉBITO",pago=!!pagosM[o],k="src-"+o;
+    const fechado=cartao&&pago?!abertos.has(k):closed.has(k);
+    const titulo=cartao?`Fatura ${esc(o)}`:"Débito / Pix";
+    const info=cartao?(fchM[o]?periodoFatura(cur,fchM[o]):"sem dia de fechamento cadastrado"):"sai direto da conta";
+    const vazio=!L.length?`<div class="empty">Nada lançado.</div>`:"";
+    const extraCopia=o==="DÉBITO"?(!f.length?`<button class="btn" data-copy="fixo">Copiar fixos de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`:"")+(!p.length?`<button class="btn" data-copy="parcela">Trazer parcelas de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`:""):"";
+    h+=`<section class="card src ${fechado?"closed":""} ${cartao&&pago?"paga":""}" data-sec="${esc(k)}" ${cartao&&pago?'data-fat="1"':""}>
+      <header><div><h2>${titulo} <span class="count">${L.length||""}</span></h2><div class="srcinfo">${esc(info)}</div></div>
+        <span style="display:flex;align-items:center;gap:10px">${cartao?`<span class="pagobtn ${pago?"on":""}" data-pago="${esc(o)}">${pago?"✓ paga":"Pagar?"}</span>`:""}<span class="tot">${brl(sum(L))}</span><span class="chev">▾</span></span></header>
+      <div class="body">${vazio}${sub("Compras",G,it=>row(it))}${sub("Fixos e assinaturas",F,it=>rowFixo(it))}${sub("Parcelas",P,it=>row(it,it.parcelas))}
+      <div class="foot">${extraCopia}${cartao?`<button class="btn" id="fechBtn_${esc(o)}" data-fech="1">Dia de fechamento</button>`:""}<button class="btn" data-addorig="${esc(o)}">+ Adicionar</button></div></div></section>`;
+  });
   h+=section("entrada","Entradas",en,totE,it=>row(it,null,true));
   h+=section("invest","Investimentos",iv,totI,it=>row(it,null,true));
 
@@ -674,15 +689,6 @@ function render(){
     ${cats.sort((a,b)=>b.v-a.v).map(x=>{const over=x.esp&&x.v>x.esp;return `<tr><td>${esc(x.c)}<div class="bar"><i class="${over?"over":""}" style="width:${Math.min(100,x.esp?x.v/x.esp*100:total?x.v/total*100:0)}%"></i></div></td><td>${x.esp?brl(x.esp):"–"}</td><td class="${over?"over":""}">${brl(x.v)}</td><td>${pct(total?x.v/total:0)}</td></tr>`}).join("")}
     ${semCat?`<tr><td>Sem categoria</td><td>–</td><td>${brl(semCat)}</td><td>${pct(semCat/total)}</td></tr>`:""}
     </table></div><div class="foot"><button class="btn" id="orcBtn">Definir valores esperados</button></div></div></section>`;
-
-  // por tipo de pagamento
-  const pagos=mesDoc.pagos||{};
-  const tipos=TIPOS.map(t=>({t,v:sum(gastosAll.filter(x=>x.tipo===t))})).filter(x=>x.v||x.t!=="Crédito 4");
-  const fch=config.fechamento||{};
-  h+=`<section class="card ${closed.has("tipo")?"closed":""}" data-sec="tipo"><header><h2>Faturas e débitos do mês</h2><span class="chev">▾</span></header><div class="body">
-    <table><tr><th>Tipo</th><th>A pagar</th><th>Pago?</th></tr>
-    ${tipos.map(x=>`<tr><td>${x.t==="DÉBITO"?"Débito / Pix":"Fatura "+esc(x.t)}${x.t!=="DÉBITO"&&fch[x.t]?`<div style="font-size:11.5px;color:var(--muted)">${periodoFatura(cur,fch[x.t])}</div>`:""}</td><td>${brl(x.v)}</td><td><span class="tick ${pagos[x.t]?"on":""}" data-pago="${esc(x.t)}">${pagos[x.t]?"✓":""}</span></td></tr>`).join("")}
-    </table><div class="foot"><button class="btn" id="fechBtn">Dias de fechamento dos cartões</button></div></div></section>`;
 
   $("#main").innerHTML=h;
   bindMonth();
@@ -709,10 +715,12 @@ function bindMonth(){
   document.querySelectorAll("[data-tick]").forEach(el=>el.onclick=async e=>{e.stopPropagation();const it=items.find(x=>x.id===el.dataset.tick);if(!it)return;try{await itens.doc(it.id).update({pago:!it.pago})}catch(er){showErr("Não consegui salvar ("+(er.code||er)+").")}});
   document.querySelectorAll("[data-add]").forEach(el=>el.onclick=()=>openEditor(blank(el.dataset.add)));
   document.querySelectorAll("[data-copy]").forEach(el=>el.onclick=()=>copyPrev(el.dataset.copy,el));
-  document.querySelectorAll("[data-pago]").forEach(el=>el.onclick=async()=>{const t=el.dataset.pago;const pagos={...(mesDoc.pagos||{})};pagos[t]=!pagos[t];try{await db.doc("meses/"+cur).set({...mesDoc,pagos})}catch(er){showErr("Não consegui salvar ("+(er.code||er)+").")}});
+  document.querySelectorAll("[data-pago]").forEach(el=>el.onclick=async e=>{e.stopPropagation();const t=el.dataset.pago;const pagos={...(mesDoc.pagos||{})};pagos[t]=!pagos[t];try{await db.doc("meses/"+cur).set({...mesDoc,pagos})}catch(er){showErr("Não consegui salvar ("+(er.code||er)+").")}});
   $("#addBtn").onclick=()=>openEditor(blank("gasto"));
   $("#orcBtn").onclick=openOrcamento;
-  $("#fechBtn").onclick=openFechamento;
+  document.querySelectorAll("[data-fech]").forEach(el=>el.onclick=openFechamento);
+  document.querySelectorAll("[data-filtro]").forEach(el=>el.onclick=()=>{filtroOrigem=el.dataset.filtro;render()});
+  document.querySelectorAll("[data-addorig]").forEach(el=>el.onclick=()=>{const it=blank("gasto");it.tipo=el.dataset.addorig;openEditor(it)});
 }
 function blank(b){
   const d=cur===todayISO().slice(0,7)?todayISO():cur+"-01";
