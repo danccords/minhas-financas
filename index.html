@@ -172,6 +172,10 @@ const ddmm=iso=>iso?`${iso.slice(8,10)}/${iso.slice(5,7)}`:"";
 const mkLabel=mk=>`${MESES[+mk.slice(5,7)-1]} ${mk.slice(0,4)}`;
 const shift=(mk,n)=>{let y=+mk.slice(0,4),m=+mk.slice(5,7)-1+n;y+=Math.floor(m/12);m=((m%12)+12)%12;return `${y}-${String(m+1).padStart(2,"0")}`};
 const parseBRL=s=>{s=String(s).trim().replace(/[R$\s]/g,"");if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");return parseFloat(s)};
+// mês em que o gasto é pago: débito/Pix no mês da compra; cartão pelo dia de fechamento
+const mesPagamento=(data,tipo)=>{if(!data)return "";const m=data.slice(0,7),f=Number(((config&&config.fechamento)||{})[tipo])||0;
+  if(tipo==="DÉBITO"||!f)return m;return +data.slice(8,10)>=f?shift(m,1):m};
+const periodoFatura=(mk,f)=>{const ini=shift(mk,-1),dd=n=>String(n).padStart(2,"0");return `compras de ${dd(f)}/${ini.slice(5,7)} a ${dd(Math.max(1,f-1))}/${f>1?mk.slice(5,7):ini.slice(5,7)}`};
 const sum=(arr)=>arr.reduce((a,x)=>a+(Number(x.valor)||0),0);
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("show"),2600)}
 function showErr(m){const e=$("#err");if(!m){e.classList.add("hidden");return}e.textContent=m;e.classList.remove("hidden")}
@@ -509,9 +513,10 @@ function render(){
   // por tipo de pagamento
   const pagos=mesDoc.pagos||{};
   const tipos=TIPOS.map(t=>({t,v:sum(gastosAll.filter(x=>x.tipo===t))})).filter(x=>x.v||x.t!=="Crédito 4");
-  h+=`<section class="card ${closed.has("tipo")?"closed":""}" data-sec="tipo"><header><h2>Por tipo de pagamento</h2><span class="chev">▾</span></header><div class="body">
-    <table><tr><th>Tipo</th><th>Total</th><th>Pago?</th></tr>
-    ${tipos.map(x=>`<tr><td>${esc(x.t)}</td><td>${brl(x.v)}</td><td><span class="tick ${pagos[x.t]?"on":""}" data-pago="${esc(x.t)}">${pagos[x.t]?"✓":""}</span></td></tr>`).join("")}
+  const fch=config.fechamento||{};
+  h+=`<section class="card ${closed.has("tipo")?"closed":""}" data-sec="tipo"><header><h2>Faturas e débitos do mês</h2><span class="chev">▾</span></header><div class="body">
+    <table><tr><th>Tipo</th><th>A pagar</th><th>Pago?</th></tr>
+    ${tipos.map(x=>`<tr><td>${x.t==="DÉBITO"?"Débito / Pix":"Fatura "+esc(x.t)}${x.t!=="DÉBITO"&&fch[x.t]?`<div style="font-size:11.5px;color:var(--muted)">${periodoFatura(cur,fch[x.t])}</div>`:""}</td><td>${brl(x.v)}</td><td><span class="tick ${pagos[x.t]?"on":""}" data-pago="${esc(x.t)}">${pagos[x.t]?"✓":""}</span></td></tr>`).join("")}
     </table><div class="foot"><button class="btn" id="fechBtn">Dias de fechamento dos cartões</button></div></div></section>`;
 
   $("#main").innerHTML=h;
@@ -589,6 +594,7 @@ function openEditor(it,thumb){
       <div class="w-n"><label class="f">Nº de parcelas</label><input id="eQ" enterkeyhint="done" type="number" min="2" max="48" inputmode="numeric" value="${it.nParc||2}"></div>
       <div class="w-ini"><label class="f">1ª parcela em</label><select id="eI">${Array.from({length:22},(_,i)=>shift(startMes,i-3)).map(m=>`<option value="${m}"${m===startMes?" selected":""}>${mkLabel(m)}</option>`).join("")}</select></div>
       <div class="full w-ini hint" id="eHint"></div>
+      <div class="full hint" id="eHintG"></div>
       <div class="w-tipo"><label class="f">Tipo (pagamento)</label><select id="eT">${opts(TIPOS,it.tipo)}</select></div>
       <div class="w-cat"><label class="f">Categoria</label><select id="eC">${opts(CATS,it.categoria,"Escolha…")}</select></div>
       <div class="w-parc"><label class="f">Parcela (ex.: 2/10)</label><input id="eP" enterkeyhint="done" value="${esc(it.parcelas||"")}"></div>
@@ -634,15 +640,19 @@ function openEditor(it,thumb){
   const autoIni=()=>{
     if(!multi())return;
     const d=$("#eD").value,t=$("#eT").value,f=Number((config.fechamento||{})[t])||0,h=$("#eHint");
-    if(!d||t==="DÉBITO"||!f){h.textContent=t!=="DÉBITO"&&!f?`Dica: informe o dia de fechamento do ${t} em "Por tipo de pagamento" que eu calculo o mês da 1ª parcela sozinho.`:"";return}
+    if(!d||t==="DÉBITO"||!f){h.textContent=t!=="DÉBITO"&&!f?`Dica: informe o dia de fechamento do ${t} em "Faturas e débitos" que eu calculo o mês da 1ª parcela sozinho.`:"";return}
     const day=+d.slice(8,10),ini=day>=f?shift(d.slice(0,7),1):d.slice(0,7);
     h.textContent=`${t} fecha dia ${f}: compra em ${ddmm(d)} cai na fatura de ${mkLabel(ini)}.`;
     if(!iniManual){const sel=$("#eI");if(![...sel.options].some(o=>o.value===ini))sel.insertAdjacentHTML("beforeend",`<option value="${ini}">${mkLabel(ini)}</option>`);sel.value=ini}
   };
-  vis(); autoIni(); $("#eB").onchange=()=>{vis();autoIni()};
+  const hintG=()=>{const h=$("#eHintG"),d=$("#eD").value,t=$("#eT").value,f=Number((config.fechamento||{})[t])||0;
+    if($("#eB").value!=="gasto"||!d){h.textContent="";return}
+    const m=mesPagamento(d,t);
+    h.textContent=t==="DÉBITO"?`Sai da conta em ${mkLabel(m)}.`:f?`${t} fecha dia ${f}: entra na fatura de ${mkLabel(m)}.`:`Sem dia de fechamento do ${t}: fica em ${mkLabel(m)}. Cadastre em "Faturas e débitos".`};
+  vis(); autoIni(); hintG(); $("#eB").onchange=()=>{vis();autoIni();hintG()};
   ["#eV","#eQ"].forEach(id=>$(id).oninput=vis);
   $("#eI").onchange=()=>{iniManual=true;vis()};
-  $("#eD").onchange=()=>{autoIni();vis()}; $("#eT").onchange=()=>{autoIni();vis()};
+  $("#eD").onchange=()=>{autoIni();vis();hintG()}; $("#eT").onchange=()=>{autoIni();vis();hintG()};
   document.querySelectorAll("[data-modo]").forEach(bt=>bt.onclick=()=>{modo=bt.dataset.modo;document.querySelectorAll("[data-modo]").forEach(x=>x.classList.toggle("on",x===bt));vis()});
   const close=()=>{$("#modal").innerHTML=""};
   $("#eCancel").onclick=close;
@@ -681,7 +691,7 @@ function openEditor(it,thumb){
       parcelas:bl==="parcela"?$("#eP").value.trim():"",pago:bl==="fixo"?$("#eG").checked:false};
     if(!(valor>0)){toast("Informe um valor maior que zero.");return}
     if(bl==="gasto"&&!rec.data){toast("Informe a data.");return}
-    rec.mes = bl==="gasto" ? rec.data.slice(0,7) : (it.mes||cur);
+    rec.mes = bl==="gasto" ? mesPagamento(rec.data,rec.tipo) : (it.mes||cur);
     $("#eSave").disabled=true;
     try{
       if(isNew) await itens.add({...rec,ordem:Date.now(),itensLidos:it.itens||"",criadoEm:new Date().toISOString()});
