@@ -131,6 +131,8 @@ body.kb .kbbtn{display:inline-block}
 .toast.show{opacity:1}
 .hidden{display:none!important}
 .status{text-align:center;color:var(--muted);padding:30px 0}
+/* credito */
+.cred{padding:12px 14px}.credh{font-weight:700;margin-bottom:8px}.credin{display:block;font-size:13px}.credin span{display:flex;gap:8px;margin-top:4px}.credin input{flex:1;min-width:0;font-size:16px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:10px}.credres{margin:12px 0 6px;font-size:14px}.credres b{display:block;font-size:24px}.credres.neg b{color:var(--red)}.credres.pos b{color:var(--accent)}.cred details{margin-top:8px;font-size:13px}.cred summary{cursor:pointer;opacity:.8}
 /* quinzena */
 .qz{padding:10px 14px;border-top:1px solid var(--line,#eee)}.qz:first-child{border-top:0}.qzh{display:flex;justify-content:space-between;margin-bottom:4px}.qzl{display:flex;justify-content:space-between;gap:10px;font-size:13px;opacity:.85;padding:2px 0}.qzl small{display:block;opacity:.7}.qz .neg{color:var(--red)}.qz .pos{color:var(--accent)}
 /* filtro por origem */
@@ -658,6 +660,7 @@ function render(){
     <button id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Novo lançamento</button>
   </div>`;
 
+  if(cur===todayISO().slice(0,7))h+=`<section class="card" id="credBox" data-sec="cred"><div class="status">Calculando quanto dá pra gastar no crédito…</div></section>`;
   // ===== filtro por forma de pagamento; blocos sempre visíveis, como na planilha =====
   const pagosM=mesDoc.pagos||{},fchM=config.fechamento||{};
   const todos=[...g,...f,...p];
@@ -678,7 +681,6 @@ function render(){
       f.length?"":`<button class="btn" data-copy="fixo">Copiar fixos de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
   h+=section("parcela","Cartão de crédito parcelado",pF,sum(pF),it=>row(it,it.parcelas),
       p.length?"":`<button class="btn" data-copy="parcela">Trazer parcelas de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
-  h+=blocoQuinzenas(g,f,p,en);
   h+=section("entrada","Entradas",en,totE,it=>row(it,null,true));
   h+=section("invest","Investimentos",iv,totI,it=>row(it,null,true));
 
@@ -694,32 +696,55 @@ function render(){
 
   $("#main").innerHTML=h;
   bindMonth();
+  if($("#credBox"))calcCredito();
 }
-/* ===== saldo por quinzena =====
-   entradas: dia 1-24 contam na quinzena do próprio dia; dia 25+ (salário do fim do mês) banca a 1ª quinzena do mês seguinte.
-   saídas: débito pela data; cartão no dia de vencimento da fatura (config.vencimento ou fechamento+7). */
-function diaDe(x){const d=x&&x.data&&x.data.length>=10?+x.data.slice(8,10):0;return d||0}
+/* ===== quanto posso gastar no crédito =====
+   dinheiro até o vencimento da próxima fatura (saldo informado + salários até lá)
+   menos o que já vai sair até lá (débitos com data e faturas que vencem até lá). */
 function vencDe(t){const v=(config.vencimento||{})[t];if(v)return +v;const f=(config.fechamento||{})[t];return f?Math.min(28,+f+7):10}
-function blocoQuinzenas(g,f,p,en){
-  const saidas=[...g,...f,...p];
-  const diaSaida=x=>(x.tipo&&x.tipo!=="DÉBITO")?vencDe(x.tipo):(diaDe(x)||10);
-  const s1=saidas.filter(x=>diaSaida(x)<=14),s2=saidas.filter(x=>diaSaida(x)>=15);
-  const eDia=x=>diaDe(x)||15;
-  const e1=[...prevEntradas.filter(x=>eDia(x)>=25),...en.filter(x=>eDia(x)<=14)];
-  const e2=en.filter(x=>eDia(x)>=15&&eDia(x)<25);
-  const eFim=en.filter(x=>eDia(x)>=25);
-  const cartoes=t=>{const m={};t.filter(x=>x.tipo&&x.tipo!=="DÉBITO").forEach(x=>{m[x.tipo]=(m[x.tipo]||0)+(Number(x.valor)||0)});return Object.entries(m).map(([c,v])=>`Fatura ${esc(c)} (dia ${vencDe(c)}) ${brl(v)}`)};
-  const deb=t=>sum(t.filter(x=>!x.tipo||x.tipo==="DÉBITO"));
-  const linha=(tit,E,S,obsE)=>{const sobra=sum(E)-sum(S);const det=[...cartoes(S),`Débito/Pix ${brl(deb(S))}`].join(" · ");
-    return `<div class="qz"><div class="qzh"><b>${tit}</b><b class="${sobra<0?"neg":"pos"}">${sobra<0?"falta ":"sobra "}${brl(Math.abs(sobra))}</b></div>
-      <div class="qzl"><span>Entra${obsE?` <small>${obsE}</small>`:""}</span><span>${brl(sum(E))}</span></div>
-      <div class="qzl"><span>Sai <small>${det}</small></span><span>${brl(sum(S))}</span></div></div>`};
-  const pm=MESES[+shift(cur,-1).slice(5,7)-1];
-  return `<section class="card ${closed.has("qz")?"closed":""}" data-sec="qz"><header><h2>Saldo por quinzena</h2><span class="chev">▾</span></header><div class="body">
-    ${linha("Dia 1 a 14",e1,s1,e1.length&&prevEntradas.length?`salário do fim de ${pm}`:"")}
-    ${linha("Dia 15 ao fim do mês",e2,s2,"salário do dia 15")}
-    ${eFim.length?`<div class="srcinfo" style="padding:6px 14px 12px">O salário do fim do mês (${brl(sum(eFim))}) entra na conta da 1ª quinzena do mês seguinte.</div>`:""}
-  </div></section>`;
+const dataBR=d=>d.slice(8,10)+"/"+d.slice(5,7);
+let credSeq=0;
+async function calcCredito(){
+  const box=$("#credBox");if(!box)return;const seq=++credSeq;
+  const C=(config.fechamento||{}).NUBANK?"NUBANK":Object.keys(config.fechamento||{})[0];
+  const sc=config.saldoConta||null,hoje=todayISO();
+  if(!C){box.innerHTML=`<div class="status">Cadastre o dia de fechamento do cartão para eu calcular.</div>`;return}
+  const mF=mesPagamento(hoje,C),venc=mF+"-"+String(vencDe(C)).padStart(2,"0");
+  const fechD=Number(config.fechamento[C]);
+  const ini=sc&&sc.em?sc.em:hoje;
+  let L=[];
+  try{const r=await itens.where("mes",">=",shift(ini.slice(0,7),-1)).where("mes","<=",mF).get();L=r.docs.map(d=>({id:d.id,...d.data()}))}catch(e){box.innerHTML=`<div class="status">Não consegui calcular agora.</div>`;return}
+  const meses={};
+  for(let m=ini.slice(0,7);m<=mF;m=shift(m,1)){try{const d=await db.doc("meses/"+m).get();meses[m]=d.exists?d.data():{}}catch(e){meses[m]={}}}
+  if(seq!==credSeq)return;
+  const dia=x=>x.data&&x.data.length>=10?x.data:(x.mes+"-"+(x.bloco==="entrada"?"15":"10"));
+  const dentro=d=>d>ini&&d<=venc;
+  const entr=L.filter(x=>x.bloco==="entrada"&&dentro(dia(x)));
+  const deb=L.filter(x=>["gasto","fixo","parcela"].includes(x.bloco)&&(!x.tipo||x.tipo==="DÉBITO")&&dentro(dia(x)));
+  const fats=[];
+  Object.keys(meses).forEach(m=>{const cart=[...new Set(L.filter(x=>x.mes===m&&x.tipo&&x.tipo!=="DÉBITO"&&x.bloco!=="entrada"&&x.bloco!=="invest").map(x=>x.tipo))];
+    cart.forEach(c=>{const d=m+"-"+String(vencDe(c)).padStart(2,"0");if(!dentro(d)||(meses[m].pagos||{})[c])return;
+      fats.push({nome:`Fatura ${c} (${dataBR(d)})`,valor:sum(L.filter(x=>x.mes===m&&x.tipo===c&&x.bloco!=="entrada"&&x.bloco!=="invest"))})})});
+  const saldo=sc?Number(sc.valor)||0:null;
+  const tem=(saldo||0)+sum(entr),sai=sum(deb)+sum(fats),pode=tem-sai;
+  const proxFech=(()=>{const d=new Date(hoje+"T12:00");if(d.getDate()>=fechD)d.setMonth(d.getMonth()+1);d.setDate(fechD);return d.toISOString().slice(0,10)})();
+  const det=[...entr.map(x=>`<div class="qzl"><span>+ ${esc(x.nome)} (${dataBR(dia(x))})</span><span>${brl(x.valor)}</span></div>`),
+    ...fats.map(x=>`<div class="qzl"><span>− ${esc(x.nome)}</span><span>${brl(x.valor)}</span></div>`),
+    ...deb.sort((a,b)=>dia(a).localeCompare(dia(b))).map(x=>`<div class="qzl"><span>− ${esc(x.nome)} (${dataBR(dia(x))})</span><span>${brl(x.valor)}</span></div>`)].join("");
+  box.innerHTML=`<div class="cred">
+    <div class="credh">Quanto posso gastar no crédito (${esc(C)})</div>
+    <label class="credin">Quanto tem na conta agora
+      <span><input id="saldoIn" type="text" inputmode="decimal" placeholder="0,00" value="${saldo!=null?String(saldo.toFixed(2)).replace(".",","):""}"><button class="btn" id="saldoOk">OK</button></span></label>
+    ${sc?`<div class="srcinfo">atualizado em ${dataBR(sc.em)}</div>`:""}
+    ${saldo==null?`<div class="srcinfo" style="margin-top:8px">Digite o saldo da sua conta para ver o resultado.</div>`:`
+    <div class="credres ${pode<0?"neg":"pos"}">${pode<0?`Não gaste no crédito agora.<b>Já falta ${brl(-pode)}</b>`:`Dá pra gastar até<b>${brl(pode)}</b>`}</div>
+    <div class="srcinfo">Compras de hoje até ${dataBR(new Date(new Date(proxFech+"T12:00").getTime()-864e5).toISOString().slice(0,10))} entram na fatura que vence ${dataBR(venc)}. ${pode<0?`A partir de ${dataBR(proxFech)} as compras vão para a fatura seguinte.`:""} Não conta mercado/gasolina do dia a dia: deixe uma folga.</div>
+    <details><summary>Ver a conta</summary>
+      <div class="qzl"><span>Na conta</span><span>${brl(saldo)}</span></div>${det}
+      <div class="qzl"><b>Sobra</b><b>${brl(pode)}</b></div></details>`}
+  </div>`;
+  $("#saldoOk").onclick=async()=>{const v=parseFloat(($("#saldoIn").value||"").replace(/\./g,"").replace(",","."));if(isNaN(v))return toast("Digite um valor");
+    try{await db.doc("config/geral").set({...config,saldoConta:{valor:v,em:todayISO()}});toast("Saldo salvo")}catch(e){showErr("Não consegui salvar ("+(e.code||e)+").")}};
 }
 function section(b,title,list,tot,rowFn,extra=""){
   return `<section class="card ${closed.has(b)?"closed":""}" data-sec="${b}">
