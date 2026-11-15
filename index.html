@@ -131,6 +131,8 @@ body.kb .kbbtn{display:inline-block}
 .toast.show{opacity:1}
 .hidden{display:none!important}
 .status{text-align:center;color:var(--muted);padding:30px 0}
+/* quinzena */
+.qz{padding:10px 14px;border-top:1px solid var(--line,#eee)}.qz:first-child{border-top:0}.qzh{display:flex;justify-content:space-between;margin-bottom:4px}.qzl{display:flex;justify-content:space-between;gap:10px;font-size:13px;opacity:.85;padding:2px 0}.qzl small{display:block;opacity:.7}.qz .neg{color:var(--red)}.qz .pos{color:var(--accent)}
 /* filtro por origem */
 .fatbar{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--card,#fff);border:1px solid var(--line,#e5e5e5);border-radius:12px;padding:10px 12px;margin:0 0 12px}
 .chips.filtro small{opacity:.7;font-weight:400}
@@ -229,7 +231,7 @@ let db=null,itens=null;
 let view="mes";
 let cur=todayISO().slice(0,7);
 let items=[],mesDoc={},config={orcamento:{}};
-let unsubItems=null,unsubMes=null,loaded=false,loadTimer=null;
+let unsubItems=null,unsubMes=null,unsubPrev=null,prevEntradas=[],loaded=false,loadTimer=null;
 const closed=new Set(JSON.parse(lsGet("fechados","[]")));
 const abertos=new Set(); // faturas pagas ficam recolhidas por padrão
 let filtroOrigem="TUDO";
@@ -595,8 +597,8 @@ function iniciarDados(){
 })();
 
 function subscribe(){
-  if(unsubItems)unsubItems(); if(unsubMes)unsubMes();
-  loaded=false; items=[]; render();
+  if(unsubItems)unsubItems(); if(unsubMes)unsubMes(); if(unsubPrev)unsubPrev();
+  loaded=false; items=[]; prevEntradas=[]; render();
   clearTimeout(loadTimer);
   loadTimer=setTimeout(()=>{if(!loaded)showErr("Os dados estão demorando para carregar. Verifique sua conexão.")},10000);
   const mk=cur;
@@ -608,6 +610,8 @@ function subscribe(){
     render();
   },e=>{clearTimeout(loadTimer);showErr("Erro ao carregar ("+e.code+").")});
   unsubMes=db.doc("meses/"+mk).onSnapshot(s=>{if(mk!==cur)return;mesDoc=s.exists?s.data():{};render()},()=>{});
+  // entradas do mês anterior: o salário do fim do mês banca a 1ª quinzena deste
+  unsubPrev=itens.where("mes","==",shift(mk,-1)).onSnapshot(s=>{if(mk!==cur)return;prevEntradas=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.bloco==="entrada");render()},()=>{});
 }
 
 /* ================= teclado ================= */
@@ -674,6 +678,7 @@ function render(){
       f.length?"":`<button class="btn" data-copy="fixo">Copiar fixos de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
   h+=section("parcela","Cartão de crédito parcelado",pF,sum(pF),it=>row(it,it.parcelas),
       p.length?"":`<button class="btn" data-copy="parcela">Trazer parcelas de ${MESES[+shift(cur,-1).slice(5,7)-1]}</button>`);
+  h+=blocoQuinzenas(g,f,p,en);
   h+=section("entrada","Entradas",en,totE,it=>row(it,null,true));
   h+=section("invest","Investimentos",iv,totI,it=>row(it,null,true));
 
@@ -689,6 +694,32 @@ function render(){
 
   $("#main").innerHTML=h;
   bindMonth();
+}
+/* ===== saldo por quinzena =====
+   entradas: dia 1-24 contam na quinzena do próprio dia; dia 25+ (salário do fim do mês) banca a 1ª quinzena do mês seguinte.
+   saídas: débito pela data; cartão no dia de vencimento da fatura (config.vencimento ou fechamento+7). */
+function diaDe(x){const d=x&&x.data&&x.data.length>=10?+x.data.slice(8,10):0;return d||0}
+function vencDe(t){const v=(config.vencimento||{})[t];if(v)return +v;const f=(config.fechamento||{})[t];return f?Math.min(28,+f+7):10}
+function blocoQuinzenas(g,f,p,en){
+  const saidas=[...g,...f,...p];
+  const diaSaida=x=>(x.tipo&&x.tipo!=="DÉBITO")?vencDe(x.tipo):(diaDe(x)||10);
+  const s1=saidas.filter(x=>diaSaida(x)<=14),s2=saidas.filter(x=>diaSaida(x)>=15);
+  const eDia=x=>diaDe(x)||15;
+  const e1=[...prevEntradas.filter(x=>eDia(x)>=25),...en.filter(x=>eDia(x)<=14)];
+  const e2=en.filter(x=>eDia(x)>=15&&eDia(x)<25);
+  const eFim=en.filter(x=>eDia(x)>=25);
+  const cartoes=t=>{const m={};t.filter(x=>x.tipo&&x.tipo!=="DÉBITO").forEach(x=>{m[x.tipo]=(m[x.tipo]||0)+(Number(x.valor)||0)});return Object.entries(m).map(([c,v])=>`Fatura ${esc(c)} (dia ${vencDe(c)}) ${brl(v)}`)};
+  const deb=t=>sum(t.filter(x=>!x.tipo||x.tipo==="DÉBITO"));
+  const linha=(tit,E,S,obsE)=>{const sobra=sum(E)-sum(S);const det=[...cartoes(S),`Débito/Pix ${brl(deb(S))}`].join(" · ");
+    return `<div class="qz"><div class="qzh"><b>${tit}</b><b class="${sobra<0?"neg":"pos"}">${sobra<0?"falta ":"sobra "}${brl(Math.abs(sobra))}</b></div>
+      <div class="qzl"><span>Entra${obsE?` <small>${obsE}</small>`:""}</span><span>${brl(sum(E))}</span></div>
+      <div class="qzl"><span>Sai <small>${det}</small></span><span>${brl(sum(S))}</span></div></div>`};
+  const pm=MESES[+shift(cur,-1).slice(5,7)-1];
+  return `<section class="card ${closed.has("qz")?"closed":""}" data-sec="qz"><header><h2>Saldo por quinzena</h2><span class="chev">▾</span></header><div class="body">
+    ${linha("Dia 1 a 14",e1,s1,e1.length&&prevEntradas.length?`salário do fim de ${pm}`:"")}
+    ${linha("Dia 15 ao fim do mês",e2,s2,"salário do dia 15")}
+    ${eFim.length?`<div class="srcinfo" style="padding:6px 14px 12px">O salário do fim do mês (${brl(sum(eFim))}) entra na conta da 1ª quinzena do mês seguinte.</div>`:""}
+  </div></section>`;
 }
 function section(b,title,list,tot,rowFn,extra=""){
   return `<section class="card ${closed.has(b)?"closed":""}" data-sec="${b}">
