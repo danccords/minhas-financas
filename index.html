@@ -660,7 +660,6 @@ function render(){
     <button id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Novo lançamento</button>
   </div>`;
 
-  if(cur===todayISO().slice(0,7))h+=`<section class="card" id="credBox" data-sec="cred"><div class="status">Calculando quanto dá pra gastar no crédito…</div></section>`;
   // ===== filtro por forma de pagamento; blocos sempre visíveis, como na planilha =====
   const pagosM=mesDoc.pagos||{},fchM=config.fechamento||{};
   const todos=[...g,...f,...p];
@@ -694,6 +693,7 @@ function render(){
     ${semCat?`<tr><td>Sem categoria</td><td>–</td><td>${brl(semCat)}</td><td>${pct(semCat/total)}</td></tr>`:""}
     </table></div><div class="foot"><button class="btn" id="orcBtn">Definir valores esperados</button></div></div></section>`;
 
+  if(cur===todayISO().slice(0,7))h+=`<section class="card" id="credBox" data-sec="cred"><div class="status">Calculando quanto dá pra gastar no crédito…</div></section>`;
   $("#main").innerHTML=h;
   bindMonth();
   if($("#credBox"))calcCredito();
