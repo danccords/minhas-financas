@@ -713,13 +713,15 @@ async function calcCredito(){
   const fechD=Number(config.fechamento[C]);
   const ini=sc&&sc.em?sc.em:hoje;
   let L=[];
-  try{const r=await itens.where("mes",">=",shift(ini.slice(0,7),-1)).where("mes","<=",mF).get();L=r.docs.map(d=>({id:d.id,...d.data()}))}catch(e){box.innerHTML=`<div class="status">Não consegui calcular agora.</div>`;return}
+  try{const r=await itens.where("mes",">=",ini.slice(0,7)).where("mes","<=",shift(mF,1)).get();L=r.docs.map(d=>({id:d.id,...d.data()}))}catch(e){box.innerHTML=`<div class="status">Não consegui calcular agora.</div>`;return}
   const meses={};
   for(let m=ini.slice(0,7);m<=mF;m=shift(m,1)){try{const d=await db.doc("meses/"+m).get();meses[m]=d.exists?d.data():{}}catch(e){meses[m]={}}}
   if(seq!==credSeq)return;
   const dia=x=>x.data&&x.data.length>=10?x.data:(x.mes+"-"+(x.bloco==="entrada"?"15":"10"));
-  const dentro=d=>d>ini&&d<=venc;
-  const entr=L.filter(x=>x.bloco==="entrada"&&dentro(dia(x)));
+  // entradas até o vencimento; saídas até a véspera do primeiro salário depois do vencimento
+  const proxSal=L.filter(x=>x.bloco==="entrada"&&dia(x)>venc).map(dia).sort()[0]||venc+"~";
+  const dentroE=d=>d>ini&&d<=venc,dentro=d=>d>ini&&d<proxSal;
+  const entr=L.filter(x=>x.bloco==="entrada"&&dentroE(dia(x)));
   const deb=L.filter(x=>["gasto","fixo","parcela"].includes(x.bloco)&&(!x.tipo||x.tipo==="DÉBITO")&&dentro(dia(x)));
   const fats=[];
   Object.keys(meses).forEach(m=>{const cart=[...new Set(L.filter(x=>x.mes===m&&x.tipo&&x.tipo!=="DÉBITO"&&x.bloco!=="entrada"&&x.bloco!=="invest").map(x=>x.tipo))];
