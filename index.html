@@ -333,7 +333,8 @@ async function ofertarDadosIniciais(){
 const FB_CONFIG={apiKey:"AIzaSyDYmQ6dxjH8bQ3Bje17uoiz7BfeyrMa9ms",authDomain:"minhas-financas-b4d29.firebaseapp.com",projectId:"minhas-financas-b4d29",storageBucket:"minhas-financas-b4d29.firebasestorage.app",messagingSenderId:"541514377158",appId:"1:541514377158:web:3c85fd182513e9609634c7"};
 const FB_URL="https://www.gstatic.com/firebasejs/12.16.0/";
 const RECAPTCHA_KEY="6LfX7hsuAAAAACPSfM73o9sByW7gV9m7iqhASpoW";
-const IA_MODELOS=["gemini-3-flash-preview","gemini-flash-latest","gemini-flash-lite-latest"];
+// o lite com raciocínio mínimo responde em ~2 s; os outros ficam de reserva
+const IA_MODELOS=["gemini-flash-lite-latest","gemini-3-flash-preview","gemini-flash-latest"];
 let fb=null,usuario=null;
 // grava sem travar a tela quando estiver sem internet: o cache local já mostra a mudança
 const soft=p=>{p.catch(e=>showErr("Não consegui sincronizar uma alteração ("+(e.code||e.message||e)+")."));return Promise.race([p,new Promise(r=>setTimeout(r,1500))])};
@@ -482,7 +483,7 @@ Regras:
 async function modeloIA(nome){
   const AI=await import(FB_URL+"firebase-ai.js");
   const ai=AI.getAI(fb.app,{backend:new AI.GoogleAIBackend()});
-  return AI.getGenerativeModel(ai,{model:nome,systemInstruction:IA_INSTRUCAO});
+  return AI.getGenerativeModel(ai,{model:nome,systemInstruction:IA_INSTRUCAO,generationConfig:{thinkingConfig:{thinkingLevel:"MINIMAL"}}});
 }
 async function enviarChat(texto){
   texto=(texto||"").trim();if(!texto||chatBusy)return;
@@ -498,7 +499,7 @@ async function enviarChat(texto){
     // tenta o último modelo que funcionou e, se der limite/erro, passa para os outros
     const ordem=iaMod?[iaMod,...IA_MODELOS.filter(n=>n!==iaMod)]:IA_MODELOS;
     for(const nome of ordem){
-      try{const m=await modeloIA(nome);const r=await m.generateContent({contents});resp=r.response.text();iaMod=nome;break}
+      try{const m=await modeloIA(nome);const r=await Promise.race([m.generateContent({contents}),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),15000))]);resp=r.response.text();iaMod=nome;break}
       catch(e){ultimoErro=e;if(/network|Failed to fetch|offline/i.test(String(e.message||e)))break}
     }
     if(resp==null)throw ultimoErro||new Error("sem resposta");
