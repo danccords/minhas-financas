@@ -516,7 +516,7 @@ Regras:
 - Você não é consultor financeiro: pode sugerir organização de gastos e metas com base nos números, sem recomendar investimentos específicos.
 Perguntas de ANÁLISE ("por que não sobra dinheiro", "onde estou gastando muito", "como juntar para X", "o que cortar"):
 - Aja como um analista financeiro direto e prático, não como um robô. Use o DIAGNÓSTICO pronto; não recalcule do zero.
-- Estrutura da resposta: 1) a conclusão principal em uma frase em negrito; 2) a conta do mês (salário − compromissos grandes = quanto sobra para o resto); 3) uma tabela curta mês a mês mostrando quanto sobrou/faltou; 4) para onde vai o dinheiro, em ordem de peso, citando valores e itens concretos (nomes de parcelas, assinaturas, restaurantes, quantidade de compras pequenas); 5) onde dá para tirar dinheiro, com estimativa de quanto economiza por mês em cada sugestão e o total; 6) um ou dois cuidados (dados incompletos, meses com poucos lançamentos).
+- Estrutura da resposta: 1) a conclusão principal em uma frase em negrito; 2) a conta do mês (salário − compromissos grandes = quanto sobra para o resto); 3) uma tabela curta mês a mês mostrando quanto sobrou/faltou; 4) para onde vai o dinheiro, em ordem de peso, citando valores e itens concretos — inclua SEMPRE o peso das parcelas (total e as maiores, com até quando vão) e dos fixos/assinaturas, além de restaurante, combustível e compras pequenas; 5) onde dá para tirar dinheiro, com estimativa de quanto economiza por mês em cada sugestão e o total; 6) um ou dois cuidados (dados incompletos, meses com poucos lançamentos).
 - Se ele disser para desconsiderar algo (ex.: o Villa Francesa), tire isso da conta e diga que tirou.
 - Seja específico: "Restaurante/iFood: média R$ 760/mês; com limite de R$ 400 sobram ~R$ 360" é bom; "gaste menos com lazer" é ruim.
 - Nessas perguntas pode usar até umas 250 palavras. Nas perguntas simples continue curto.`;
@@ -538,9 +538,9 @@ async function enviarChat(texto){
     let resp=null,ultimoErro=null;
     // tenta o último modelo que funcionou e, se der limite/erro, passa para os outros
     const analise=/por ?qu|porque|analis|onde (eu )?(estou|to|tô)|como (eu )?(posso|consigo|fa[cç]o)|juntar|economiz|cortar|reduzir|dica|sugest|vale a pena|devo|consigo/i.test(texto);
-    const ordem=analise?[["gemini-3-flash-preview","LOW"],["gemini-flash-lite-latest","LOW"],["gemini-flash-latest","LOW"]]:(iaMod?[iaMod,...IA_MODELOS.filter(n=>n!==iaMod)]:IA_MODELOS).map(n=>[n,"MINIMAL"]);
+    const ordem=analise?[["gemini-flash-lite-latest","MINIMAL"],["gemini-3-flash-preview","LOW"],["gemini-flash-latest","MINIMAL"]]:(iaMod?[iaMod,...IA_MODELOS.filter(n=>n!==iaMod)]:IA_MODELOS).map(n=>[n,"MINIMAL"]);
     for(const [nome,nivel] of ordem){
-      try{const m=await modeloIA(nome,nivel);const r=await Promise.race([m.generateContent({contents}),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),nivel==="LOW"?25000:15000))]);resp=r.response.text();if(!analise)iaMod=nome;break}
+      try{const m=await modeloIA(nome,nivel);const r=await Promise.race([m.generateContent({contents}),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),nivel==="LOW"?20000:15000))]);resp=r.response.text();if(!analise)iaMod=nome;break}
       catch(e){ultimoErro=e;if(/network|Failed to fetch|offline/i.test(String(e.message||e)))break}
     }
     if(resp==null)throw ultimoErro||new Error("sem resposta");
