@@ -453,7 +453,41 @@ async function contextoFinanceiro(){
   const comp={};A.filter(x=>x.bloco==="gasto"&&x.data).forEach(x=>{const m=x.data.slice(0,7),c=x.categoria||"Sem categoria";comp[m]=comp[m]||{};comp[m][c]=(comp[m][c]||0)+(+x.valor||0)});
   const resumoCompra=Object.keys(comp).sort().map(m=>`${m}: `+Object.entries(comp[m]).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+" "+r2(v)).join(", ")).join("\n");
   const lin=A.slice().sort((a,b)=>(a.mes||"").localeCompare(b.mes||"")||(a.data||"").localeCompare(b.data||"")).map(x=>[x.mes,x.data||"-",x.bloco,x.nome,x.tipo||"-",x.categoria||"-",r2(x.valor),x.parcelas||"",x.bloco==="fixo"?(x.pago?"pago":"nao pago"):""].join(";")).join("\n");
+  // ===== diagnóstico pronto (para perguntas de análise) =====
+  const hoje=todayISO(),mAtual=hoje.slice(0,7);
+  const ehCasamento=x=>/vill?a francesa|casamento|cerimonial|buffet|noiva|vestido|fot[oó]graf|decora/i.test(x.nome||"");
+  const gastoM=x=>["gasto","fixo","parcela"].includes(x.bloco);
+  const brl2=v=>"R$ "+r2(v).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const diag=[];
+  const ult=[-3,-2,-1,0,1,2].map(n=>shift(mAtual,n));
+  diag.push("Mês | entradas | casamento | demais gastos (fixos/parcelas/gastos) | sobra sem casamento");
+  ult.forEach(m=>{const M=A.filter(x=>x.mes===m);if(!M.length)return;
+    const e=sum(M.filter(x=>x.bloco==="entrada")),c=sum(M.filter(x=>gastoM(x)&&ehCasamento(x)));
+    const R=M.filter(x=>gastoM(x)&&!ehCasamento(x));const f=sum(R.filter(x=>x.bloco==="fixo")),p=sum(R.filter(x=>x.bloco==="parcela")),g=sum(R.filter(x=>x.bloco==="gasto"));
+    diag.push(`${m}${m>mAtual?" (previsão, sem gastos do dia a dia)":m===mAtual?" (mês atual, incompleto)":""} | ${brl2(e)} | ${brl2(c)} | ${brl2(f+p+g)} (fixos ${brl2(f)}, parcelas ${brl2(p)}, gastos ${brl2(g)}) | ${brl2(e-c-f-p-g)}`)});
+  // categorias pela data da compra, últimos 3 meses completos
+  const tres=[-3,-2,-1].map(n=>shift(mAtual,n));
+  const catM={};A.filter(x=>x.bloco==="gasto"&&x.data&&!ehCasamento(x)&&tres.includes(x.data.slice(0,7))).forEach(x=>{const c=x.categoria||"Sem categoria";catM[c]=catM[c]||{};catM[c][x.data.slice(0,7)]=(catM[c][x.data.slice(0,7)]||0)+(+x.valor||0)});
+  diag.push("\nGASTOS DO DIA A DIA POR CATEGORIA (data da compra, meses "+tres.join(", ")+"; média mensal):");
+  Object.entries(catM).map(([c,o])=>[c,o,(tres.reduce((a,m)=>a+(o[m]||0),0))/3]).sort((a,b)=>b[2]-a[2]).forEach(([c,o,med])=>diag.push(`${c}: média ${brl2(med)} | `+tres.map(m=>m+" "+brl2(o[m]||0)).join(", ")));
+  const pequenos=A.filter(x=>x.bloco==="gasto"&&x.data&&tres.includes(x.data.slice(0,7))&&(+x.valor||0)<80);
+  diag.push(`Compras pequenas (< R$ 80) nesses 3 meses: ${pequenos.length} compras somando ${brl2(sum(pequenos))}.`);
+  // parcelas ativas no mês atual, com fim
+  const pAt=A.filter(x=>x.bloco==="parcela"&&x.mes===mAtual);
+  const fim=n=>{const l=A.filter(x=>x.bloco==="parcela"&&x.nome===n).map(x=>x.mes).sort();return l[l.length-1]};
+  diag.push(`\nPARCELAS DESTE MÊS (${brl2(sum(pAt))}; nome: valor, parcela, termina em):`);
+  pAt.sort((a,b)=>b.valor-a.valor).forEach(x=>diag.push(`${x.nome}: ${brl2(x.valor)} (${x.parcelas||"?"}, ${x.categoria||"-"}) até ${fim(x.nome)}`));
+  diag.push("Total de parcelas por mês daqui pra frente: "+[0,1,2,3,4,5,6].map(n=>{const m=shift(mAtual,n);return m+" "+brl2(sum(A.filter(x=>x.bloco==="parcela"&&x.mes===m)))}).join(", "));
+  const fx=A.filter(x=>x.bloco==="fixo"&&x.mes===mAtual);
+  diag.push(`\nFIXOS DESTE MÊS (${brl2(sum(fx))}): `+fx.sort((a,b)=>b.valor-a.valor).map(x=>`${x.nome} ${brl2(x.valor)} (${x.categoria||"-"})`).join(", "));
+  const cas=A.filter(x=>gastoM(x)&&ehCasamento(x)).sort((a,b)=>(a.mes||"").localeCompare(b.mes||""));
+  diag.push(`\nCASAMENTO (lançamentos ligados ao casamento): `+(cas.length?cas.map(x=>`${x.mes} ${x.nome} ${brl2(x.valor)}`).join("; "):"nenhum"));
   const txt=`HOJE: ${todayISO()}
+CONTEXTO PESSOAL: o Daniel vai se casar. "Villa Francesa" é o local do casamento, pago em 12 parcelas no débito; "cerimonial" também é do casamento. Salário: R$ 3.200 no dia 15 e R$ 3.200 no dia 30.
+
+DIAGNÓSTICO JÁ CALCULADO PELO APP (use estes números em perguntas de análise, "por quê", "onde estou gastando", "como juntar dinheiro"):
+${diag.join("\n")}
+
 FECHAMENTO DOS CARTÕES (dia do mês): ${JSON.stringify(config.fechamento||{})}. A fatura do Nubank vence no dia 10.
 VALOR ESPERADO POR CATEGORIA (orçamento mensal): ${JSON.stringify(config.orcamento||{})}
 
@@ -479,11 +513,17 @@ Regras:
 - Use os totais já calculados do resumo sempre que possível; se precisar somar lançamentos, confira a conta duas vezes. Nunca invente lançamentos ou valores que não estejam nos dados.
 - Mostre valores no formato R$ 1.234,56. Use uma lista ou tabela curta quando ajudar; evite textos longos.
 - Se a pergunta não tiver relação com as finanças dele, responda brevemente e volte ao assunto.
-- Você não é consultor financeiro: pode sugerir organização de gastos e metas com base nos números, sem recomendar investimentos específicos.`;
-async function modeloIA(nome){
+- Você não é consultor financeiro: pode sugerir organização de gastos e metas com base nos números, sem recomendar investimentos específicos.
+Perguntas de ANÁLISE ("por que não sobra dinheiro", "onde estou gastando muito", "como juntar para X", "o que cortar"):
+- Aja como um analista financeiro direto e prático, não como um robô. Use o DIAGNÓSTICO pronto; não recalcule do zero.
+- Estrutura da resposta: 1) a conclusão principal em uma frase em negrito; 2) a conta do mês (salário − compromissos grandes = quanto sobra para o resto); 3) uma tabela curta mês a mês mostrando quanto sobrou/faltou; 4) para onde vai o dinheiro, em ordem de peso, citando valores e itens concretos (nomes de parcelas, assinaturas, restaurantes, quantidade de compras pequenas); 5) onde dá para tirar dinheiro, com estimativa de quanto economiza por mês em cada sugestão e o total; 6) um ou dois cuidados (dados incompletos, meses com poucos lançamentos).
+- Se ele disser para desconsiderar algo (ex.: o Villa Francesa), tire isso da conta e diga que tirou.
+- Seja específico: "Restaurante/iFood: média R$ 760/mês; com limite de R$ 400 sobram ~R$ 360" é bom; "gaste menos com lazer" é ruim.
+- Nessas perguntas pode usar até umas 250 palavras. Nas perguntas simples continue curto.`;
+async function modeloIA(nome,nivel="MINIMAL"){
   const AI=await import(FB_URL+"firebase-ai.js");
   const ai=AI.getAI(fb.app,{backend:new AI.GoogleAIBackend()});
-  return AI.getGenerativeModel(ai,{model:nome,systemInstruction:IA_INSTRUCAO,generationConfig:{thinkingConfig:{thinkingLevel:"MINIMAL"}}});
+  return AI.getGenerativeModel(ai,{model:nome,systemInstruction:IA_INSTRUCAO,generationConfig:{thinkingConfig:{thinkingLevel:nivel}}});
 }
 async function enviarChat(texto){
   texto=(texto||"").trim();if(!texto||chatBusy)return;
@@ -497,9 +537,10 @@ async function enviarChat(texto){
       ...chatHist,{role:"user",parts:[{text:texto}]}];
     let resp=null,ultimoErro=null;
     // tenta o último modelo que funcionou e, se der limite/erro, passa para os outros
-    const ordem=iaMod?[iaMod,...IA_MODELOS.filter(n=>n!==iaMod)]:IA_MODELOS;
-    for(const nome of ordem){
-      try{const m=await modeloIA(nome);const r=await Promise.race([m.generateContent({contents}),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),15000))]);resp=r.response.text();iaMod=nome;break}
+    const analise=/por ?qu|porque|analis|onde (eu )?(estou|to|tô)|como (eu )?(posso|consigo|fa[cç]o)|juntar|economiz|cortar|reduzir|dica|sugest|vale a pena|devo|consigo/i.test(texto);
+    const ordem=analise?[["gemini-3-flash-preview","LOW"],["gemini-flash-lite-latest","LOW"],["gemini-flash-latest","LOW"]]:(iaMod?[iaMod,...IA_MODELOS.filter(n=>n!==iaMod)]:IA_MODELOS).map(n=>[n,"MINIMAL"]);
+    for(const [nome,nivel] of ordem){
+      try{const m=await modeloIA(nome,nivel);const r=await Promise.race([m.generateContent({contents}),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),nivel==="LOW"?25000:15000))]);resp=r.response.text();if(!analise)iaMod=nome;break}
       catch(e){ultimoErro=e;if(/network|Failed to fetch|offline/i.test(String(e.message||e)))break}
     }
     if(resp==null)throw ultimoErro||new Error("sem resposta");
