@@ -645,7 +645,8 @@ function move(n){
 }
 
 /* ================= render do mês ================= */
-function byBloco(b){return items.filter(x=>x.bloco===b).sort((a,c)=>(a.data||"9").localeCompare(c.data||"9")||(a.ordem||0)-(c.ordem||0))}
+// mais recentes em cima; sem data vão para o fim
+function byBloco(b){return items.filter(x=>x.bloco===b).sort((a,c)=>(c.data||"").localeCompare(a.data||"")||String(c.criadoEm||"").localeCompare(String(a.criadoEm||""))||(c.ordem||0)-(a.ordem||0))}
 function render(){
   $("#label").textContent=view==="ano"?cur.slice(0,4):mkLabel(cur);
   if(view==="ano"){renderYear();return}
